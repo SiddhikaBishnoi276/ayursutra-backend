@@ -1,0 +1,285 @@
+### ============================================================================
+### AyurSutra: Therapy Protocol & Package Management APIs
+### Compatible with VS Code REST Client extension (by Huachao Mao)
+### ============================================================================
+
+@baseUrl    = http://localhost:5000
+@clinicId   = 1
+@protocolId = 1
+
+
+### ============================================================================
+### 1. CREATE PROTOCOL (POST /api/protocols)
+### ============================================================================
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1a. Deep Insert: Parent Protocol + 3 Nested Stages (Virechana)
+# Expected: 201 Created
+# ─────────────────────────────────────────────────────────────────────────────
+# @name createVirechana
+POST {{baseUrl}}/api/protocols
+Content-Type: application/json
+
+{
+  "name": "Standard Pitta Shodhana Virechana Package",
+  "therapy_type": "Virechana",
+  "clinic_id": {{clinicId}},
+  "stages": [
+    {
+      "stage_type": "Poorvakarma",
+      "sequence_order": 1,
+      "day_offset": 0,
+      "duration_days": 3,
+      "pre_instructions": "Internal oleation (Snehapana) with Medicated Ghee on empty stomach in increasing doses.",
+      "post_instructions": "Drink warm water only. Complete rest.",
+      "base_diet_framework": {
+        "morning": "Warm medicated water with ginger",
+        "afternoon": "Light rice gruel (Peya/Vilepi) without oil",
+        "evening": "Moong dal soup",
+        "restrictions": ["No oily food", "No cold drinks", "No day sleeping"]
+      }
+    },
+    {
+      "stage_type": "Pradhanakarma",
+      "sequence_order": 2,
+      "day_offset": 3,
+      "duration_days": 1,
+      "pre_instructions": "Administer Virechana Aushadhi (Trivrit Lehyam) at 8:00 AM.",
+      "post_instructions": "Monitor Vega count, pulse, and hydration level continuously.",
+      "base_diet_framework": {
+        "morning": "NPO (Nothing by mouth) till purgation starts",
+        "afternoon": "Warm electrolyte water / thin rice water after Vegas cease",
+        "evening": "Warm light Peya (rice water)",
+        "restrictions": ["Strict rest", "Avoid direct breeze"]
+      }
+    },
+    {
+      "stage_type": "Paschatkarma",
+      "sequence_order": 3,
+      "day_offset": 4,
+      "duration_days": 3,
+      "pre_instructions": "Begin Samsarjana Krama gradual diet regimen based on Shuddhi grade.",
+      "post_instructions": "Transition back to normal Ayurvedic satvic diet.",
+      "base_diet_framework": {
+        "morning": "Peya (thin rice gruel)",
+        "afternoon": "Vilepi (thick rice gruel) with pinch of rock salt",
+        "evening": "Yusha (light spiced green gram soup)",
+        "restrictions": ["Avoid heavy, fried, fermented foods for 7 days"]
+      }
+    }
+  ]
+}
+
+###
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1b. Create Basti Protocol with 2 Stages
+# Expected: 201 Created
+# ─────────────────────────────────────────────────────────────────────────────
+POST {{baseUrl}}/api/protocols
+Content-Type: application/json
+
+{
+  "name": "Kala Basti Vata Shamana Protocol",
+  "therapy_type": "Basti",
+  "clinic_id": {{clinicId}},
+  "stages": [
+    {
+      "stage_type": "Poorvakarma",
+      "sequence_order": 1,
+      "day_offset": 0,
+      "duration_days": 2,
+      "pre_instructions": "Abhyanga and local Nadi Sweda over lower abdomen and back.",
+      "post_instructions": "Rest for 15 minutes before procedure."
+    },
+    {
+      "stage_type": "Pradhanakarma",
+      "sequence_order": 2,
+      "day_offset": 2,
+      "duration_days": 8,
+      "pre_instructions": "Alternate Anuvasana and Niruha Basti as per Kala Basti schedule.",
+      "post_instructions": "Rest in left lateral position for 48 minutes."
+    }
+  ]
+}
+
+###
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1c. Validation Error: Missing required fields
+# Expected: 400 Bad Request
+# ─────────────────────────────────────────────────────────────────────────────
+POST {{baseUrl}}/api/protocols
+Content-Type: application/json
+
+{
+  "name": "Incomplete Protocol"
+}
+
+###
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1d. Validation Error: Invalid therapy_type
+# Expected: 400 Bad Request
+# ─────────────────────────────────────────────────────────────────────────────
+POST {{baseUrl}}/api/protocols
+Content-Type: application/json
+
+{
+  "name": "Invalid Therapy Protocol",
+  "therapy_type": "Shirodhara",
+  "clinic_id": {{clinicId}}
+}
+
+###
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1e. Validation Error: Invalid stage_type in nested stages
+# Expected: 400 Bad Request
+# ─────────────────────────────────────────────────────────────────────────────
+POST {{baseUrl}}/api/protocols
+Content-Type: application/json
+
+{
+  "name": "Invalid Stage Protocol",
+  "therapy_type": "Nasya",
+  "clinic_id": {{clinicId}},
+  "stages": [
+    {
+      "stage_type": "InvalidPhaseName",
+      "duration_days": 2
+    }
+  ]
+}
+
+###
+
+
+### ============================================================================
+### 2. GET ALL PROTOCOLS (GET /api/protocols)
+### ============================================================================
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2a. List all protocols for clinic
+# ─────────────────────────────────────────────────────────────────────────────
+GET {{baseUrl}}/api/protocols?clinic_id={{clinicId}}
+
+###
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2b. Filter by therapy_type
+# ─────────────────────────────────────────────────────────────────────────────
+GET {{baseUrl}}/api/protocols?therapy_type=Virechana&clinic_id={{clinicId}}
+
+###
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2c. Filter by is_active
+# ─────────────────────────────────────────────────────────────────────────────
+GET {{baseUrl}}/api/protocols?is_active=true&clinic_id={{clinicId}}
+
+###
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2d. Invalid therapy_type filter
+# Expected: 400 Bad Request
+# ─────────────────────────────────────────────────────────────────────────────
+GET {{baseUrl}}/api/protocols?therapy_type=NonExistent
+
+###
+
+
+### ============================================================================
+### 3. GET SINGLE PROTOCOL (GET /api/protocols/:id)
+### ============================================================================
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3a. Deep Fetch with Ordered Stages
+# ─────────────────────────────────────────────────────────────────────────────
+GET {{baseUrl}}/api/protocols/{{protocolId}}
+
+###
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3b. Not Found
+# Expected: 404
+# ─────────────────────────────────────────────────────────────────────────────
+GET {{baseUrl}}/api/protocols/999999
+
+###
+
+
+### ============================================================================
+### 4. UPDATE PROTOCOL (PUT / PATCH /api/protocols/:id)
+### ============================================================================
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4a. PATCH — Update parent name only
+# ─────────────────────────────────────────────────────────────────────────────
+PATCH {{baseUrl}}/api/protocols/{{protocolId}}
+Content-Type: application/json
+
+{
+  "name": "Standard Pitta Shodhana Virechana Package (Updated v2)"
+}
+
+###
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4b. PUT — Deep Update: Parent + Replace All Stages
+# ─────────────────────────────────────────────────────────────────────────────
+PUT {{baseUrl}}/api/protocols/{{protocolId}}
+Content-Type: application/json
+
+{
+  "name": "Standard Pitta Shodhana Virechana Package (Revised 5-Day)",
+  "therapy_type": "Virechana",
+  "stages": [
+    {
+      "stage_type": "Poorvakarma",
+      "sequence_order": 1,
+      "day_offset": 0,
+      "duration_days": 2,
+      "pre_instructions": "Deepana & Pachana with Chitrakadi Vati before Snehapana.",
+      "post_instructions": "Rest after intake."
+    },
+    {
+      "stage_type": "Pradhanakarma",
+      "sequence_order": 2,
+      "day_offset": 2,
+      "duration_days": 1,
+      "pre_instructions": "Administer Virechana formulation early morning.",
+      "post_instructions": "Track all Vegas."
+    },
+    {
+      "stage_type": "Paschatkarma",
+      "sequence_order": 3,
+      "day_offset": 3,
+      "duration_days": 2,
+      "pre_instructions": "Standard Samsarjana Krama.",
+      "post_instructions": "Gradual return to normal diet."
+    }
+  ]
+}
+
+###
+
+
+### ============================================================================
+### 5. DELETE PROTOCOL (DELETE /api/protocols/:id)
+### ============================================================================
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5a. Soft Delete (sets is_active = false)
+# ─────────────────────────────────────────────────────────────────────────────
+DELETE {{baseUrl}}/api/protocols/{{protocolId}}
+
+###
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5b. Not Found
+# Expected: 404
+# ─────────────────────────────────────────────────────────────────────────────
+DELETE {{baseUrl}}/api/protocols/999999
+
+###

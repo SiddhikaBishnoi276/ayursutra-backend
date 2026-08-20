@@ -1,0 +1,315 @@
+### ============================================================================
+### AyurSutra Admin APIs — REST Client Test File
+### Install VS Code extension: "REST Client" by Huachao Mao
+### Set @baseUrl and @clinicId before sending requests
+### ============================================================================
+
+@baseUrl   = http://localhost:5000
+@clinicId  = 1
+@doctorId  = {{createDoctor.response.body.data.id}}
+@therapistId = {{createTherapist.response.body.data.id}}
+
+
+### ============================================================================
+### TASK 1: STAFF MANAGEMENT APIs
+### ============================================================================
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1a. POST /api/staff — Create a new Doctor (Success)
+# ─────────────────────────────────────────────────────────────────────────────
+# @name createDoctor
+POST {{baseUrl}}/api/staff
+Content-Type: application/json
+
+{
+  "name": "Dr. Arjun Sharma",
+  "email": "arjun.sharma@ayursutra.com",
+  "phone": "9876500001",
+  "password": "Secure@123",
+  "gender": "Male",
+  "role": "doctor",
+  "clinic_id": {{clinicId}},
+  "qualification": "BAMS, MD (Ayurveda)",
+  "registration_number": "REG-MH-2024-001"
+}
+
+###
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1b. POST /api/staff — Create a new Therapist with Specializations (Success)
+# ─────────────────────────────────────────────────────────────────────────────
+# @name createTherapist
+POST {{baseUrl}}/api/staff
+Content-Type: application/json
+
+{
+  "name": "Priya Nair",
+  "email": "priya.nair@ayursutra.com",
+  "phone": "9876500002",
+  "password": "Secure@456",
+  "gender": "Female",
+  "role": "therapist",
+  "clinic_id": {{clinicId}},
+  "specializations": ["Vamana", "Basti"]
+}
+
+###
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1c. POST /api/staff — Validation Error: Missing required fields
+# Expected: 400 Bad Request
+# ─────────────────────────────────────────────────────────────────────────────
+POST {{baseUrl}}/api/staff
+Content-Type: application/json
+
+{
+  "name": "Incomplete Staff"
+}
+
+###
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1d. POST /api/staff — Validation Error: Invalid role
+# Expected: 400 Bad Request
+# ─────────────────────────────────────────────────────────────────────────────
+POST {{baseUrl}}/api/staff
+Content-Type: application/json
+
+{
+  "name": "Bad Role User",
+  "phone": "9876500099",
+  "password": "Test@123",
+  "role": "admin",
+  "clinic_id": {{clinicId}}
+}
+
+###
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 1e. POST /api/staff — Conflict Error: Duplicate phone number
+# Expected: 409 Conflict
+# ─────────────────────────────────────────────────────────────────────────────
+POST {{baseUrl}}/api/staff
+Content-Type: application/json
+
+{
+  "name": "Duplicate Doctor",
+  "phone": "9876500001",
+  "password": "Test@123",
+  "role": "doctor",
+  "clinic_id": {{clinicId}}
+}
+
+###
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2a. GET /api/staff — Retrieve all staff
+# ─────────────────────────────────────────────────────────────────────────────
+GET {{baseUrl}}/api/staff?clinic_id={{clinicId}}
+
+###
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2b. GET /api/staff — Filter by role: therapist
+# ─────────────────────────────────────────────────────────────────────────────
+GET {{baseUrl}}/api/staff?role=therapist&clinic_id={{clinicId}}
+
+###
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2c. GET /api/staff — Filter by role: doctor
+# ─────────────────────────────────────────────────────────────────────────────
+GET {{baseUrl}}/api/staff?role=doctor&clinic_id={{clinicId}}
+
+###
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2d. GET /api/staff — Filter by status: Active
+# ─────────────────────────────────────────────────────────────────────────────
+GET {{baseUrl}}/api/staff?status=Active&clinic_id={{clinicId}}
+
+###
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2e. GET /api/staff — Filter by status: Engaged (therapists with in_progress sessions)
+# ─────────────────────────────────────────────────────────────────────────────
+GET {{baseUrl}}/api/staff?status=Engaged&clinic_id={{clinicId}}
+
+###
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2f. GET /api/staff — Filter by status: Suspended
+# ─────────────────────────────────────────────────────────────────────────────
+GET {{baseUrl}}/api/staff?status=Suspended&clinic_id={{clinicId}}
+
+###
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2g. GET /api/staff — Invalid role filter
+# Expected: 400 Bad Request
+# ─────────────────────────────────────────────────────────────────────────────
+GET {{baseUrl}}/api/staff?role=nurse
+
+###
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3a. PATCH /api/staff/:id/status — Suspend a staff member (Success)
+# Replace <STAFF_UUID> with a real UUID from step 1a or 1b
+# ─────────────────────────────────────────────────────────────────────────────
+# @prompt Replace <STAFF_UUID> with a real staff member UUID before sending
+PATCH {{baseUrl}}/api/staff/<STAFF_UUID>/status
+Content-Type: application/json
+
+{
+  "status": "Suspended"
+}
+
+###
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3b. PATCH /api/staff/:id/status — Re-activate a suspended staff member
+# ─────────────────────────────────────────────────────────────────────────────
+PATCH {{baseUrl}}/api/staff/<STAFF_UUID>/status
+Content-Type: application/json
+
+{
+  "status": "Active"
+}
+
+###
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3c. PATCH /api/staff/:id/status — Invalid status value
+# Expected: 400 Bad Request
+# ─────────────────────────────────────────────────────────────────────────────
+PATCH {{baseUrl}}/api/staff/<STAFF_UUID>/status
+Content-Type: application/json
+
+{
+  "status": "Engaged"
+}
+
+###
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3d. PATCH /api/staff/:id/status — Not found
+# Expected: 404 Not Found
+# ─────────────────────────────────────────────────────────────────────────────
+PATCH {{baseUrl}}/api/staff/00000000-0000-0000-0000-000000000000/status
+Content-Type: application/json
+
+{
+  "status": "Suspended"
+}
+
+###
+
+
+### ============================================================================
+### ENHANCED ROOM & REAL-TIME OCCUPANCY TRACKING APIs
+### ============================================================================
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4a. POST /api/rooms — Add a new Massage Suite (Success)
+# ─────────────────────────────────────────────────────────────────────────────
+POST {{baseUrl}}/api/rooms
+Content-Type: application/json
+
+{
+  "name": "Suite 101",
+  "room_type": "Abhyanga Massage Suite",
+  "clinic_id": {{clinicId}},
+  "status": "available"
+}
+
+###
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4b. POST /api/rooms — Add a Steam Chamber (Success)
+# ─────────────────────────────────────────────────────────────────────────────
+POST {{baseUrl}}/api/rooms
+Content-Type: application/json
+
+{
+  "name": "Steam Chamber 2",
+  "room_type": "Swedana",
+  "clinic_id": {{clinicId}},
+  "status": "available"
+}
+
+###
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4c. POST /api/rooms — Add a room under maintenance
+# ─────────────────────────────────────────────────────────────────────────────
+POST {{baseUrl}}/api/rooms
+Content-Type: application/json
+
+{
+  "name": "Droni Therapy Room 3",
+  "clinic_id": {{clinicId}},
+  "status": "under_maintenance"
+}
+
+###
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4d. POST /api/rooms — Validation Error: Missing required fields
+# Expected: 400 Bad Request
+# ─────────────────────────────────────────────────────────────────────────────
+POST {{baseUrl}}/api/rooms
+Content-Type: application/json
+
+{
+  "status": "available"
+}
+
+###
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4e. POST /api/rooms — Validation Error: Invalid status value
+# Expected: 400 Bad Request
+# ─────────────────────────────────────────────────────────────────────────────
+POST {{baseUrl}}/api/rooms
+Content-Type: application/json
+
+{
+  "name": "Invalid Status Room",
+  "clinic_id": {{clinicId}},
+  "status": "dirty"
+}
+
+###
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5a. GET /api/rooms — Retrieve all rooms for a clinic
+# ─────────────────────────────────────────────────────────────────────────────
+GET {{baseUrl}}/api/rooms?clinic_id={{clinicId}}
+
+###
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5b. GET /api/rooms — Retrieve all rooms across all clinics
+# ─────────────────────────────────────────────────────────────────────────────
+GET {{baseUrl}}/api/rooms
+
+###
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6a. GET /api/rooms/occupancy — Detailed Real-Time Room Occupancy Tracking
+# Returns:
+# - Live status ('Available' | 'Occupied' | 'Maintenance')
+# - If Occupied: Assigned Therapist's Name/Phone/ID & Session Timings
+# ─────────────────────────────────────────────────────────────────────────────
+GET {{baseUrl}}/api/rooms/occupancy?clinic_id={{clinicId}}
+
+###
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6b. GET /api/rooms/occupancy — Real-Time Occupancy across all clinics
+# ─────────────────────────────────────────────────────────────────────────────
+GET {{baseUrl}}/api/rooms/occupancy
+
+###
