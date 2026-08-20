@@ -207,18 +207,19 @@ Content-Type: application/json
 
 
 ### ============================================================================
-### TASK 2: ROOM APIs
+### ENHANCED ROOM & REAL-TIME OCCUPANCY TRACKING APIs
 ### ============================================================================
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4a. POST /api/rooms — Add a new room (Success)
+# 4a. POST /api/rooms — Add a new Massage Suite (Success)
 # ─────────────────────────────────────────────────────────────────────────────
 POST {{baseUrl}}/api/rooms
 Content-Type: application/json
 
 {
-  "name": "Panchakarma Room 1",
+  "name": "Suite 101",
+  "room_type": "Abhyanga Massage Suite",
   "clinic_id": {{clinicId}},
   "status": "available"
 }
@@ -226,13 +227,28 @@ Content-Type: application/json
 ###
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4b. POST /api/rooms — Add a room under maintenance
+# 4b. POST /api/rooms — Add a Steam Chamber (Success)
 # ─────────────────────────────────────────────────────────────────────────────
 POST {{baseUrl}}/api/rooms
 Content-Type: application/json
 
 {
-  "name": "Therapy Room 2",
+  "name": "Steam Chamber 2",
+  "room_type": "Swedana",
+  "clinic_id": {{clinicId}},
+  "status": "available"
+}
+
+###
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4c. POST /api/rooms — Add a room under maintenance
+# ─────────────────────────────────────────────────────────────────────────────
+POST {{baseUrl}}/api/rooms
+Content-Type: application/json
+
+{
+  "name": "Droni Therapy Room 3",
   "clinic_id": {{clinicId}},
   "status": "under_maintenance"
 }
@@ -240,7 +256,7 @@ Content-Type: application/json
 ###
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4c. POST /api/rooms — Validation Error: Missing required fields
+# 4d. POST /api/rooms — Validation Error: Missing required fields
 # Expected: 400 Bad Request
 # ─────────────────────────────────────────────────────────────────────────────
 POST {{baseUrl}}/api/rooms
@@ -253,7 +269,7 @@ Content-Type: application/json
 ###
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4d. POST /api/rooms — Validation Error: Invalid status value
+# 4e. POST /api/rooms — Validation Error: Invalid status value
 # Expected: 400 Bad Request
 # ─────────────────────────────────────────────────────────────────────────────
 POST {{baseUrl}}/api/rooms
@@ -268,29 +284,31 @@ Content-Type: application/json
 ###
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 5a. GET /api/rooms — Retrieve all rooms
+# 5a. GET /api/rooms — Retrieve all rooms for a clinic
 # ─────────────────────────────────────────────────────────────────────────────
 GET {{baseUrl}}/api/rooms?clinic_id={{clinicId}}
 
 ###
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 5b. GET /api/rooms — All rooms (no clinic filter)
+# 5b. GET /api/rooms — Retrieve all rooms across all clinics
 # ─────────────────────────────────────────────────────────────────────────────
 GET {{baseUrl}}/api/rooms
 
 ###
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 6a. GET /api/rooms/occupancy — Real-time occupancy of all rooms
-# Returns: Available | Occupied (with session_id) | Maintenance
+# 6a. GET /api/rooms/occupancy — Detailed Real-Time Room Occupancy Tracking
+# Returns:
+# - Live status ('Available' | 'Occupied' | 'Maintenance')
+# - If Occupied: Assigned Therapist's Name/Phone/ID & Session Timings
 # ─────────────────────────────────────────────────────────────────────────────
 GET {{baseUrl}}/api/rooms/occupancy?clinic_id={{clinicId}}
 
 ###
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 6b. GET /api/rooms/occupancy — All clinics (no filter)
+# 6b. GET /api/rooms/occupancy — Real-Time Occupancy across all clinics
 # ─────────────────────────────────────────────────────────────────────────────
 GET {{baseUrl}}/api/rooms/occupancy
 

@@ -5,10 +5,12 @@ const VALID_ROOM_STATUSES = ['available', 'occupied', 'under_maintenance'];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/rooms — Add a new room
+// Accepts: { name, room_type, clinic_id, status }
+// Maps payload strictly to existing rooms table columns (id, name, clinic_id, status).
 // ─────────────────────────────────────────────────────────────────────────────
 const createRoom = async (req, res) => {
   try {
-    const { name, clinic_id, status } = req.body;
+    const { name, room_type, clinic_id, status } = req.body;
 
     // — Required field validation —
     const missing = [];
@@ -26,19 +28,20 @@ const createRoom = async (req, res) => {
     if (status && !VALID_ROOM_STATUSES.includes(status)) {
       return res.status(400).json({
         success: false,
-        message: `Invalid status. Must be one of: ${VALID_ROOM_STATUSES.join(', ')}`,
+        message: `Invalid status "${status}". Must be one of: ${VALID_ROOM_STATUSES.join(', ')}`,
       });
     }
 
     const newRoom = await roomService.createRoom({
       name: name.trim(),
-      clinic_id,
+      room_type,
+      clinic_id: parseInt(clinic_id, 10),
       status: status || 'available',
     });
 
     return res.status(201).json({
       success: true,
-      message: 'Room created successfully.',
+      message: 'Therapy room created successfully.',
       data: newRoom,
     });
   } catch (err) {
@@ -62,7 +65,7 @@ const getAllRooms = async (req, res) => {
   try {
     const { clinic_id } = req.query;
 
-    const rooms = await roomService.getAllRooms(clinic_id);
+    const rooms = await roomService.getAllRooms(clinic_id ? parseInt(clinic_id, 10) : undefined);
 
     return res.status(200).json({
       success: true,
@@ -76,16 +79,17 @@ const getAllRooms = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /api/rooms/occupancy — Real-time occupancy status of all rooms
+// GET /api/rooms/occupancy — Detailed Real-time Room Occupancy & Status Tracking
+// Joins active sessions to return assigned therapist details & session timing.
 // Query params: ?clinic_id=1
 // ─────────────────────────────────────────────────────────────────────────────
 const getRoomOccupancy = async (req, res) => {
   try {
     const { clinic_id } = req.query;
 
-    const occupancy = await roomService.getRoomOccupancy(clinic_id);
+    const occupancy = await roomService.getRoomOccupancy(clinic_id ? parseInt(clinic_id, 10) : undefined);
 
-    // Build summary counts
+    // Summary count of room statuses
     const summary = occupancy.reduce(
       (acc, room) => {
         const key = room.occupancy_status.toLowerCase();

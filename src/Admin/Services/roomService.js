@@ -2,13 +2,24 @@ const { pool } = require('../../config/db');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CREATE ROOM
+// Maps payload (name, room_type, clinic_id, status) strictly to existing DB columns:
+// - id (SERIAL PRIMARY KEY)
+// - clinic_id (INT)
+// - name (VARCHAR(100)) — if room_type is provided, appends it for rich categorization
+// - status (VARCHAR(50)) — 'available' | 'occupied' | 'under_maintenance'
 // ─────────────────────────────────────────────────────────────────────────────
-const createRoom = async ({ name, clinic_id, status }) => {
+const createRoom = async ({ name, room_type, clinic_id, status }) => {
+  // Format room name if room_type category is provided
+  let formattedName = name;
+  if (room_type && room_type.trim() && !name.toLowerCase().includes(room_type.toLowerCase())) {
+    formattedName = `${name} (${room_type.trim()})`;
+  }
+
   const result = await pool.query(
     `INSERT INTO rooms (name, clinic_id, status)
      VALUES ($1, $2, $3)
      RETURNING id, name, clinic_id, status`,
-    [name, clinic_id, status || 'available']
+    [formattedName, clinic_id, status || 'available']
   );
   return result.rows[0];
 };
@@ -37,10 +48,13 @@ const getAllRooms = async (clinic_id) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET ROOM OCCUPANCY (Real-Time)
-// Joins rooms with any currently in_progress session to determine live status.
-// Returns the stored room status PLUS a live computed occupancy_status and
-// the linked session_id if the room is occupied.
+// GET ROOM OCCUPANCY (Real-Time Detailed Tracking)
+// Performs SQL JOINs across rooms, sessions, therapist users, and patient users:
+// - Finds active sessions (where sessions.status = 'in_progress')
+// - Fetches assigned therapist's Name, Phone & ID
+// - Fetches assigned patient's Name & ID
+// - Fetches session timing (scheduled date, scheduled time, actual start time, actual end time)
+// - Dynamically computes live occupancy_status ('Available' | 'Occupied' | 'Maintenance')
 // ─────────────────────────────────────────────────────────────────────────────
 const getRoomOccupancy = async (clinic_id) => {
   const params = [];
@@ -57,22 +71,39 @@ const getRoomOccupancy = async (clinic_id) => {
        r.name,
        r.clinic_id,
        r.status AS stored_status,
-       -- Live session data (NULL if no in_progress session)
-       active_session.id        AS active_session_id,
+       -- Active Session Data (NULL if room has no session in_progress)
+       active_session.id                  AS active_session_id,
        active_session.patient_id,
+       active_session.patient_name,
        active_session.therapist_id,
+       active_session.therapist_name,
+       active_session.therapist_phone,
        active_session.scheduled_date,
        active_session.scheduled_time,
-       -- Compute live occupancy status
+       active_session.actual_start_time,
+       active_session.actual_end_time,
+       -- Live Dynamic Occupancy Status
        CASE
-         WHEN r.status = 'under_maintenance'  THEN 'Maintenance'
-         WHEN active_session.id IS NOT NULL   THEN 'Occupied'
+         WHEN r.status = 'under_maintenance' THEN 'Maintenance'
+         WHEN active_session.id IS NOT NULL  THEN 'Occupied'
          ELSE 'Available'
        END AS occupancy_status
      FROM rooms r
      LEFT JOIN LATERAL (
-       SELECT s.id, s.patient_id, s.therapist_id, s.scheduled_date, s.scheduled_time
+       SELECT
+         s.id,
+         s.patient_id,
+         pu.name AS patient_name,
+         s.therapist_id,
+         tu.name AS therapist_name,
+         tu.phone AS therapist_phone,
+         s.scheduled_date,
+         s.scheduled_time,
+         s.actual_start_time,
+         s.actual_end_time
        FROM sessions s
+       LEFT JOIN users tu ON tu.id = s.therapist_id
+       LEFT JOIN users pu ON pu.id = s.patient_id
        WHERE s.room_id = r.id
          AND s.status = 'in_progress'
        LIMIT 1
@@ -91,10 +122,21 @@ const getRoomOccupancy = async (clinic_id) => {
     active_session: row.active_session_id
       ? {
           session_id: row.active_session_id,
-          patient_id: row.patient_id,
-          therapist_id: row.therapist_id,
-          scheduled_date: row.scheduled_date,
-          scheduled_time: row.scheduled_time,
+          patient: {
+            id: row.patient_id,
+            name: row.patient_name || 'N/A',
+          },
+          assigned_therapist: {
+            id: row.therapist_id,
+            name: row.therapist_name || 'Unassigned',
+            phone: row.therapist_phone || null,
+          },
+          timing: {
+            scheduled_date: row.scheduled_date,
+            scheduled_time: row.scheduled_time,
+            actual_start_time: row.actual_start_time,
+            actual_end_time: row.actual_end_time,
+          },
         }
       : null,
   }));
