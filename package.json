@@ -4,7 +4,13 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+<<<<<<< HEAD
     "test": "node tests/therapistFlow.test.js",
+=======
+    "test": "node tests/therapistFlow.test.js && node tests/patientFlow.test.js",
+    "test:patient": "node tests/patientFlow.test.js",
+    "test:therapist": "node tests/therapistFlow.test.js",
+>>>>>>> e4526382ed65348e7d817f4462c4ba7fcdc15e96
     "dev": "node src/server.js",
     "db:init": "node src/config/initDb.js",
     "db:seed": "node src/config/seed.js"

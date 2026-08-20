@@ -7,6 +7,11 @@ const therapistRoutes = require('./Therapist/Routes/therapistRoutes');
 const sessionRoutes = require('./Therapist/Routes/sessionRoutes');
 const errorHandler = require('./Common/Middleware/errorHandler');
 
+const therapistRoutes = require('./Therapist/Routes/therapistRoutes');
+const sessionRoutes = require('./Therapist/Routes/sessionRoutes');
+const patientRoutes = require('./Patient/Routes/patientRoutes');
+const errorHandler = require('./Common/Middleware/errorHandler');
+
 const app = express();
 
 app.use(cors());
@@ -22,6 +27,10 @@ app.get('/', (req, res) => {
 // API Routes
 app.use('/api/therapist', therapistRoutes);
 app.use('/api/sessions', sessionRoutes);
+<<<<<<< HEAD
+=======
+app.use('/api/patient', patientRoutes);
+>>>>>>> e4526382ed65348e7d817f4462c4ba7fcdc15e96
 
 // Centralized Error Handling Middleware
 app.use(errorHandler);
