@@ -5,8 +5,8 @@ async function seedTherapyPackage() {
   try {
     await client.query('BEGIN');
 
-    const doctorRes = await client.query("SELECT id FROM users WHERE phone = '9000000002'");
-    const doctorId = doctorRes.rows[0]?.id;
+    const adminRes = await client.query("SELECT id FROM users WHERE clinic_id = 1 AND role = 'clinic_admin' LIMIT 1");
+    const adminId = adminRes.rows[0]?.id || null;
 
     let pkgRes = await client.query("SELECT id FROM therapy_packages WHERE name = '7-Day Virechana Protocol' AND clinic_id = 1");
     let packageId = pkgRes.rows[0]?.id;
@@ -15,9 +15,14 @@ async function seedTherapyPackage() {
       const insertPkg = await client.query(
         `INSERT INTO therapy_packages (clinic_id, name, therapy_type, created_by, is_active)
          VALUES (1, '7-Day Virechana Protocol', 'Virechana', $1, true) RETURNING id`,
-        [doctorId]
+        [adminId]
       );
       packageId = insertPkg.rows[0].id;
+    } else {
+      await client.query(
+        `UPDATE therapy_packages SET created_by = $1 WHERE id = $2`,
+        [adminId, packageId]
+      );
     }
 
     const stages = [
@@ -37,7 +42,7 @@ async function seedTherapyPackage() {
         [packageId, s.stage_type, s.sequence_order, s.day_offset, s.duration_days, s.session_duration_minutes, s.pre, s.post]
       );
     }
-    console.log('✅ Therapy package seeded: 7-Day Virechana Protocol (3 stages with durations: 30min, 90min, 60min)');
+    console.log('✅ Therapy package seeded: 7-Day Virechana Protocol (Created by Admin, 3 stages with durations: 30min, 90min, 60min)');
 
     await client.query('COMMIT');
   } catch (err) {

@@ -32,7 +32,8 @@ function sanitizeStageType(type, index = 0) {
 }
 
 /**
- * List therapy packages with nested stages array via an aggregated SQL query.
+ * List therapy packages with nested stages and dynamically derived is_standard
+ * based on the creator's role.
  */
 async function listPackages(clinicId) {
   const packagesQuery = `
@@ -40,8 +41,15 @@ async function listPackages(clinicId) {
       p.id,
       p.name,
       p.therapy_type,
+      p.created_by,
       p.is_active,
       p.created_at,
+      creator.role AS creator_role,
+      CASE 
+        WHEN creator.role IN ('clinic_admin', 'solo_practitioner') OR p.created_by IS NULL THEN true
+        WHEN creator.role = 'doctor' THEN false
+        ELSE false
+      END AS is_standard,
       COALESCE(
         json_agg(
           json_build_object(
@@ -69,9 +77,10 @@ async function listPackages(clinicId) {
       ) AS stages,
       COALESCE(SUM(s.duration_days), 7) AS total_duration_days
     FROM therapy_packages p
+    LEFT JOIN users creator ON creator.id = p.created_by
     LEFT JOIN therapy_package_stages s ON s.package_id = p.id
     WHERE p.clinic_id = $1 AND p.is_active = true
-    GROUP BY p.id, p.name, p.therapy_type, p.is_active, p.created_at
+    GROUP BY p.id, p.name, p.therapy_type, p.created_by, p.is_active, p.created_at, creator.role
     ORDER BY p.name ASC;
   `;
 
@@ -85,14 +94,18 @@ async function listPackages(clinicId) {
     description: `Classical clinical protocol for ${row.name}.`,
     durationDays: parseInt(row.total_duration_days || 7, 10),
     duration_days: parseInt(row.total_duration_days || 7, 10),
-    isStandard: true,
+    isStandard: Boolean(row.is_standard),
+    is_standard: Boolean(row.is_standard),
     is_active: row.is_active,
+    created_by: row.created_by,
+    creator_role: row.creator_role || null,
     stages: row.stages,
   }));
 }
 
 /**
  * Create a custom/standard therapy package with nested stages.
+ * Saves created_by as the logged-in doctor's ID.
  */
 async function createPackage(doctorUser, packageData) {
   const client = await pool.connect();
@@ -105,7 +118,7 @@ async function createPackage(doctorUser, packageData) {
     const pkgRes = await client.query(
       `INSERT INTO therapy_packages (clinic_id, name, therapy_type, created_by, is_active)
        VALUES ($1, $2, $3, $4, true)
-       RETURNING id, name, therapy_type, is_active, created_at`,
+       RETURNING id, name, therapy_type, created_by, is_active, created_at`,
       [doctorUser.clinic_id, name, therapyType, doctorUser.id]
     );
     const newPkg = pkgRes.rows[0];
@@ -159,6 +172,7 @@ async function createPackage(doctorUser, packageData) {
     await client.query('COMMIT');
 
     const totalDays = createdStages.reduce((acc, s) => acc + s.duration_days, 0);
+    const isStandard = doctorUser.role === 'clinic_admin' || doctorUser.role === 'solo_practitioner';
 
     return {
       id: newPkg.id,
@@ -166,7 +180,10 @@ async function createPackage(doctorUser, packageData) {
       therapy_type: newPkg.therapy_type,
       targetDosha: newPkg.therapy_type,
       durationDays: totalDays,
-      isStandard: false,
+      duration_days: totalDays,
+      isStandard,
+      is_standard: isStandard,
+      created_by: newPkg.created_by,
       stages: createdStages.map((s) => ({
         id: s.id,
         name: `${s.stage_type} Stage`,

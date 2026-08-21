@@ -56,7 +56,7 @@ async function runTests() {
     assert.strictEqual(typeof firstTherapist.isAvailable, 'boolean', 'isAvailable must be boolean');
     console.log(`✅ Fetched ${therapistsRes.data.length} therapists:`, therapistsRes.data.map(t => `${t.name} (Workload: ${t.activeWorkload}, Available: ${t.isAvailable})`));
 
-    // 3. POST /api/doctor/therapy-packages (Custom package creation)
+    // 3. POST /api/doctor/therapy-packages (Custom package creation by doctor)
     console.log('\n--- Step 3: POST /api/doctor/therapy-packages ---');
     const customPkgPayload = {
       name: `Custom Janu Basti & Patra Protocol ${Date.now()}`,
@@ -95,18 +95,33 @@ async function runTests() {
     assert.strictEqual(createPkgRes.status, 201, 'POST package must return 201');
     assert.ok(createPkgRes.data.id, 'Created package must have id');
     assert.strictEqual(createPkgRes.data.stages.length, 3, 'Created package must have 3 stages');
+    assert.strictEqual(createPkgRes.data.isStandard, false, 'Doctor created package response must have isStandard: false');
+    assert.strictEqual(createPkgRes.data.created_by, doctorId, 'Doctor created package must set created_by to logged-in doctor');
     packageId = createPkgRes.data.id;
-    console.log(`✅ Created custom therapy package ID: ${packageId} with 3 stages (Total days: ${createPkgRes.data.durationDays})`);
+    console.log(`✅ Created custom therapy package ID: ${packageId} with 3 stages (isStandard: ${createPkgRes.data.isStandard}, created_by: ${createPkgRes.data.created_by})`);
 
-    // 4. GET /api/doctor/therapy-packages (Verify nested stages)
+    // 4. GET /api/doctor/therapy-packages (Verify dynamic is_standard & nested stages)
     console.log('\n--- Step 4: GET /api/doctor/therapy-packages ---');
     const listPkgsRes = await req('GET', '/api/doctor/therapy-packages', null, authHeaders);
     assert.strictEqual(listPkgsRes.status, 200, 'GET packages must return 200');
     assert.ok(listPkgsRes.data.length > 0, 'Packages list must not be empty');
+
+    // Test Case A: Packages created by admin / default have isStandard: true
+    const adminPkgs = listPkgsRes.data.filter(p => p.creator_role === 'clinic_admin' || p.creator_role === 'solo_practitioner' || p.created_by === null);
+    assert.ok(adminPkgs.length > 0, 'At least one standard package created by admin must exist');
+    for (const p of adminPkgs) {
+      assert.strictEqual(p.isStandard, true, `Admin package "${p.name}" must have isStandard: true`);
+      assert.strictEqual(p.is_standard, true, `Admin package "${p.name}" must have is_standard: true`);
+    }
+    console.log(`✅ Test Case A: Verified ${adminPkgs.length} admin packages have isStandard: true`);
+
+    // Test Case B: Package created by doctor has isStandard: false
     const fetchedCustomPkg = listPkgsRes.data.find(p => p.id === packageId);
     assert.ok(fetchedCustomPkg, 'Created package must appear in list');
+    assert.strictEqual(fetchedCustomPkg.isStandard, false, 'Doctor created package must return isStandard: false');
+    assert.strictEqual(fetchedCustomPkg.is_standard, false, 'Doctor created package must return is_standard: false');
     assert.ok(Array.isArray(fetchedCustomPkg.stages) && fetchedCustomPkg.stages.length > 0, 'Package stages must be nested array');
-    console.log(`✅ Verified package listing with nested stages (Found ${listPkgsRes.data.length} packages)`);
+    console.log(`✅ Test Case B: Verified doctor custom package ID ${packageId} returns isStandard: false with ${fetchedCustomPkg.stages.length} stages`);
 
     // 5. POST /api/doctor/patients (Intake)
     console.log('\n--- Step 5: POST /api/doctor/patients ---');
