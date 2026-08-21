@@ -98,6 +98,24 @@ async function resolvePackageForPatient(clinicId, patientId, explicitPackageId) 
  * 2-layer therapist availability validation, and room overlap checks.
  */
 async function generateTherapyPlan(doctorUser, patientId, packageId, options = {}) {
+  // Check if patient already has an active ongoing plan that is not completed
+  const existingPlanRes = await query(
+    `SELECT tp.id, tp.status, tp.start_date, p.name AS package_name
+     FROM therapy_plans tp
+     LEFT JOIN therapy_packages p ON p.id = tp.package_id
+     WHERE tp.patient_id = $1 AND tp.status NOT IN ('completed', 'cancelled', 'discharged')
+     ORDER BY tp.created_at DESC
+     LIMIT 1`,
+    [patientId]
+  );
+  const existingPlan = existingPlanRes.rows[0];
+  if (existingPlan) {
+    const pkgName = existingPlan.package_name || `Plan #${existingPlan.id}`;
+    throw new Error(
+      `Patient already has an active ongoing therapy plan (${pkgName}, Status: ${existingPlan.status}). A new plan cannot be created until the current plan is completed.`
+    );
+  }
+
   const defaultCandidateSlots = ['10:00:00', '11:30:00', '14:00:00', '15:30:00', '09:00:00', '16:30:00'];
   const preferredSlot = options.preferredStartTime ? normalizeTimeString(options.preferredStartTime) : '10:00:00';
   const candidateSlots = [preferredSlot, ...defaultCandidateSlots.filter(s => s !== preferredSlot)];
@@ -111,6 +129,7 @@ async function generateTherapyPlan(doctorUser, patientId, packageId, options = {
   );
   const stages = stagesResult.rows;
   if (stages.length === 0) throw new Error('This package has no stages defined');
+
 
   // Filter 1: Specialization match (continuity - same primary therapist for the plan)
   const specMatch = await query(

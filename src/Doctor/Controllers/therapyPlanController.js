@@ -14,8 +14,10 @@ async function generatePlanHandler(req, res) {
     res.status(201).json(result);
   } catch (err) {
     console.error('Error in generatePlanHandler:', err);
-    res.status(500).json({ error: err.message });
+    const isConflict = err.message && (err.message.includes('already has an active') || err.message.includes('cannot be created'));
+    res.status(isConflict ? 409 : 500).json({ error: err.message, message: err.message });
   }
 }
+
 
 module.exports = { generatePlanHandler };
