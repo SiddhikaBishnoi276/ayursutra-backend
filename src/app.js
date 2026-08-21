@@ -7,6 +7,7 @@ const adminResourceRoutes = require('./Admin/Routes/adminRoutes');
 const staffRoutes = require('./Admin/Routes/staffRoutes');
 const roomRoutes = require('./Admin/Routes/roomRoutes');
 const protocolRoutes = require('./Admin/Routes/protocolRoutes');
+const prakritiQuestionRoutes = require('./Admin/Routes/prakritiQuestionRoutes');
 
 // Therapist & Session Routes
 const therapistRoutes = require('./Therapist/Routes/therapistRoutes');
@@ -34,6 +35,7 @@ app.use('/api/clinics', adminResourceRoutes);
 app.use('/api/staff', staffRoutes);
 app.use('/api/rooms', roomRoutes);
 app.use('/api/protocols', protocolRoutes);
+app.use('/api/prakriti-questions', prakritiQuestionRoutes);
 
 // ── Therapist & Session Routes ────────────────────────────────────────────────
 app.use('/api/therapist', therapistRoutes);

@@ -33,16 +33,17 @@ const createProtocol = async ({
       const stageResult = await client.query(
         `INSERT INTO therapy_package_stages
            (package_id, stage_type, sequence_order, day_offset, duration_days,
-            pre_instructions, post_instructions, base_diet_framework)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            session_duration_minutes, pre_instructions, post_instructions, base_diet_framework)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          RETURNING id, package_id, stage_type, sequence_order, day_offset,
-                   duration_days, pre_instructions, post_instructions, base_diet_framework`,
+                   duration_days, session_duration_minutes, pre_instructions, post_instructions, base_diet_framework`,
         [
           newProtocol.id,
           stage.stage_type,
           stage.sequence_order !== undefined ? stage.sequence_order : i + 1,
           stage.day_offset || 0,
           stage.duration_days,
+          stage.session_duration_minutes || 45,
           stage.pre_instructions || null,
           stage.post_instructions || null,
           stage.base_diet_framework ? JSON.stringify(stage.base_diet_framework) : null,
@@ -139,7 +140,7 @@ const getProtocolById = async (id) => {
   // 2. Fetch all child stages ordered by sequence_order ASC
   const stagesResult = await pool.query(
     `SELECT id, package_id, stage_type, sequence_order, day_offset,
-            duration_days, pre_instructions, post_instructions, base_diet_framework
+            duration_days, session_duration_minutes, pre_instructions, post_instructions, base_diet_framework
      FROM therapy_package_stages
      WHERE package_id = $1
      ORDER BY sequence_order ASC`,
@@ -220,14 +221,15 @@ const updateProtocol = async (id, { name, therapy_type, is_active, stages }) => 
         await client.query(
           `INSERT INTO therapy_package_stages
              (package_id, stage_type, sequence_order, day_offset, duration_days,
-              pre_instructions, post_instructions, base_diet_framework)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+              session_duration_minutes, pre_instructions, post_instructions, base_diet_framework)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
           [
             id,
             stage.stage_type,
             stage.sequence_order !== undefined ? stage.sequence_order : i + 1,
             stage.day_offset || 0,
             stage.duration_days,
+            stage.session_duration_minutes || 45,
             stage.pre_instructions || null,
             stage.post_instructions || null,
             stage.base_diet_framework ? JSON.stringify(stage.base_diet_framework) : null,
