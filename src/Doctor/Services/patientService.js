@@ -97,6 +97,9 @@ async function addPatient(doctorUser, { name, age, gender, contact_number, conta
   } catch (err) {
     await client.query('ROLLBACK');
     if (err.code === '23505') {
+      if (err.detail && err.detail.includes('email')) {
+        throw new Error('This email address is already registered');
+      }
       throw new Error('This phone number is already registered');
     }
     throw err;
