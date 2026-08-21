@@ -95,14 +95,30 @@ CREATE TABLE IF NOT EXISTS therapist_specializations (
     therapy_type VARCHAR(50) NOT NULL CHECK (therapy_type IN ('Vamana', 'Virechana', 'Basti', 'Nasya', 'Raktamokshana'))
 );
 
--- 2.4 Therapist Availability
+-- 2.4 Therapist Weekly Shifts (Default Recurring Working Hours)
+CREATE TABLE IF NOT EXISTS therapist_weekly_shifts (
+    id SERIAL PRIMARY KEY,
+    therapist_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    day_of_week SMALLINT NOT NULL CHECK (day_of_week BETWEEN 0 AND 6),
+    start_time TIME NOT NULL,
+    end_time TIME NOT NULL,
+    is_working BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_therapist_weekly_shifts UNIQUE(therapist_id, day_of_week)
+);
+
+-- 2.5 Therapist Availability (Overrides / Specific Date Exceptions & Leaves)
 CREATE TABLE IF NOT EXISTS therapist_availability (
     id SERIAL PRIMARY KEY,
     therapist_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     date DATE NOT NULL,
-    start_time TIME NOT NULL,
-    end_time TIME NOT NULL,
-    status VARCHAR(20) NOT NULL DEFAULT 'available' CHECK (status IN ('available', 'leave'))
+    start_time TIME,
+    end_time TIME,
+    is_available BOOLEAN DEFAULT TRUE,
+    status VARCHAR(20) NOT NULL DEFAULT 'available' CHECK (status IN ('available', 'leave')),
+    reason TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ==============================================================================
@@ -148,6 +164,7 @@ CREATE TABLE IF NOT EXISTS therapy_package_stages (
     sequence_order INT NOT NULL,
     day_offset INT DEFAULT 0,
     duration_days INT NOT NULL,
+    session_duration_minutes INT NOT NULL DEFAULT 60,
     pre_instructions TEXT,
     post_instructions TEXT,
     base_diet_framework JSONB
@@ -242,10 +259,42 @@ CREATE TABLE IF NOT EXISTS sessions (
     room_id INT REFERENCES rooms(id) ON DELETE SET NULL,
     scheduled_date DATE NOT NULL,
     scheduled_time TIME NOT NULL,
-    status VARCHAR(50) DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'in_progress', 'completed', 'no_show')),
+    scheduled_start_time TIME NOT NULL DEFAULT '10:00:00',
+    scheduled_end_time TIME NOT NULL DEFAULT '11:00:00',
+    status VARCHAR(50) DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'in_progress', 'completed', 'no_show', 'cancelled')),
     actual_start_time TIMESTAMP WITH TIME ZONE,
     actual_end_time TIMESTAMP WITH TIME ZONE
 );
+
+-- Sessions auto-sync trigger for time ranges
+CREATE OR REPLACE FUNCTION trg_sync_session_times()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.scheduled_start_time IS NULL THEN
+        IF NEW.scheduled_time IS NOT NULL THEN
+            NEW.scheduled_start_time := NEW.scheduled_time;
+        ELSE
+            NEW.scheduled_start_time := '10:00:00'::TIME;
+        END IF;
+    END IF;
+
+    IF NEW.scheduled_end_time IS NULL THEN
+        NEW.scheduled_end_time := (NEW.scheduled_start_time + INTERVAL '60 minutes')::TIME;
+    END IF;
+
+    IF NEW.scheduled_time IS NULL THEN
+        NEW.scheduled_time := NEW.scheduled_start_time;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_sessions_time_sync ON sessions;
+CREATE TRIGGER trg_sessions_time_sync
+BEFORE INSERT OR UPDATE ON sessions
+FOR EACH ROW
+EXECUTE FUNCTION trg_sync_session_times();
 
 -- 6.4 Session Equipment Usage
 CREATE TABLE IF NOT EXISTS session_equipment_usage (
@@ -352,7 +401,8 @@ CREATE INDEX IF NOT EXISTS idx_users_created_by ON users(created_by);
 
 CREATE INDEX IF NOT EXISTS idx_therapist_spec_therapist_id ON therapist_specializations(therapist_id);
 CREATE INDEX IF NOT EXISTS idx_therapist_spec_type ON therapist_specializations(therapy_type);
-CREATE INDEX IF NOT EXISTS idx_therapist_avail_date ON therapist_availability(therapist_id, date);
+CREATE INDEX IF NOT EXISTS idx_therapist_weekly_shifts_therapist_id ON therapist_weekly_shifts(therapist_id);
+CREATE INDEX IF NOT EXISTS idx_therapist_avail_therapist_date ON therapist_availability(therapist_id, date);
 
 CREATE INDEX IF NOT EXISTS idx_rooms_clinic_id ON rooms(clinic_id);
 CREATE INDEX IF NOT EXISTS idx_equipment_room_id ON equipment(room_id);
@@ -366,6 +416,8 @@ CREATE INDEX IF NOT EXISTS idx_sessions_patient_id ON sessions(patient_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_therapist_id ON sessions(therapist_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_room_id ON sessions(room_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
+CREATE INDEX IF NOT EXISTS idx_sessions_therapist_range ON sessions(therapist_id, scheduled_date, scheduled_start_time, scheduled_end_time);
+CREATE INDEX IF NOT EXISTS idx_sessions_room_range ON sessions(room_id, scheduled_date, scheduled_start_time, scheduled_end_time);
 
 CREATE INDEX IF NOT EXISTS idx_complication_alerts_doctor_id ON complication_alerts(doctor_id);
 CREATE INDEX IF NOT EXISTS idx_complication_alerts_status ON complication_alerts(status);
