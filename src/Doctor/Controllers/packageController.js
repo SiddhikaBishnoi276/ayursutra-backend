@@ -2,7 +2,8 @@ const { listPackages, createPackage } = require('../Services/packageService');
 
 async function listPackagesHandler(req, res) {
   try {
-    const packages = await listPackages(req.user.clinic_id);
+    const patientId = req.query.patientId || req.query.patient_id || null;
+    const packages = await listPackages(req.user.clinic_id, patientId);
     res.json(packages);
   } catch (err) {
     console.error('Error in listPackagesHandler:', err);

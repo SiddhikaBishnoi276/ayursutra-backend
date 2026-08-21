@@ -10,6 +10,88 @@ const {
 } = require('./availabilityService');
 
 /**
+ * Maps a confirmed Prakriti dosha string to its classical primary Panchakarma therapy.
+ */
+function mapDoshaToTherapyType(confirmedDosha) {
+  if (!confirmedDosha) return 'Virechana';
+  const lower = String(confirmedDosha).toLowerCase();
+  if (lower.includes('vata')) return 'Basti';
+  if (lower.includes('pitta')) return 'Virechana';
+  if (lower.includes('kapha')) return 'Vamana';
+  if (lower.includes('rakta')) return 'Raktamokshana';
+  if (lower.includes('nasya') || lower.includes('shiro')) return 'Nasya';
+  return 'Virechana';
+}
+
+/**
+ * Resolves explicit package or dynamically auto-assigns package matching patient's confirmed Prakriti.
+ */
+async function resolvePackageForPatient(clinicId, patientId, explicitPackageId) {
+  if (explicitPackageId) {
+    const pkgResult = await query(
+      'SELECT * FROM therapy_packages WHERE id = $1 AND clinic_id = $2 AND is_active = true',
+      [explicitPackageId, clinicId]
+    );
+    const pkg = pkgResult.rows[0];
+    if (!pkg) throw new Error('Therapy package not found for this clinic');
+    return {
+      pkg,
+      autoAssigned: false,
+      confirmedDosha: null,
+      reason: `Manually selected by doctor: ${pkg.name}`,
+    };
+  }
+
+  // Look up patient's confirmed dosha from latest prakriti assessment
+  const assessmentRes = await query(
+    `SELECT confirmed_dosha FROM prakriti_assessments WHERE patient_id = $1 ORDER BY assessed_at DESC LIMIT 1`,
+    [patientId]
+  );
+  const confirmedDosha = assessmentRes.rows[0]?.confirmed_dosha || null;
+  const targetTherapyType = mapDoshaToTherapyType(confirmedDosha);
+
+  // 1. Try to find active package with exact therapy_type
+  const matchedPkgRes = await query(
+    `SELECT p.* FROM therapy_packages p
+     LEFT JOIN users creator ON creator.id = p.created_by
+     WHERE p.clinic_id = $1 AND p.is_active = true AND p.therapy_type = $2
+     ORDER BY (creator.role IN ('clinic_admin', 'solo_practitioner') OR p.created_by IS NULL) DESC, p.id ASC
+     LIMIT 1`,
+    [clinicId, targetTherapyType]
+  );
+
+  let pkg = matchedPkgRes.rows[0];
+
+  // 2. Fallback: Any active standard package in this clinic
+  if (!pkg) {
+    const fallbackPkgRes = await query(
+      `SELECT p.* FROM therapy_packages p
+       LEFT JOIN users creator ON creator.id = p.created_by
+       WHERE p.clinic_id = $1 AND p.is_active = true
+       ORDER BY (creator.role IN ('clinic_admin', 'solo_practitioner') OR p.created_by IS NULL) DESC, p.id ASC
+       LIMIT 1`,
+      [clinicId]
+    );
+    pkg = fallbackPkgRes.rows[0];
+  }
+
+  if (!pkg) {
+    throw new Error('No active therapy package available in this clinic for auto-assignment');
+  }
+
+  const reason = confirmedDosha
+    ? `Auto-assigned based on ${confirmedDosha} Prakriti (Classical ${targetTherapyType} protocol)`
+    : `Auto-assigned standard default clinic protocol (${pkg.therapy_type})`;
+
+  return {
+    pkg,
+    autoAssigned: true,
+    confirmedDosha,
+    reason,
+  };
+}
+
+/**
  * Generates an end-to-end sequential therapy plan with stage-specific durations,
  * 2-layer therapist availability validation, and room overlap checks.
  */
@@ -18,16 +100,12 @@ async function generateTherapyPlan(doctorUser, patientId, packageId, options = {
   const preferredSlot = options.preferredStartTime ? normalizeTimeString(options.preferredStartTime) : '10:00:00';
   const candidateSlots = [preferredSlot, ...defaultCandidateSlots.filter(s => s !== preferredSlot)];
 
-  const pkgResult = await query(
-    'SELECT * FROM therapy_packages WHERE id = $1 AND clinic_id = $2 AND is_active = true',
-    [packageId, doctorUser.clinic_id]
-  );
-  const pkg = pkgResult.rows[0];
-  if (!pkg) throw new Error('Therapy package not found for this clinic');
+  const resolved = await resolvePackageForPatient(doctorUser.clinic_id, patientId, packageId);
+  const pkg = resolved.pkg;
 
   const stagesResult = await query(
     'SELECT * FROM therapy_package_stages WHERE package_id = $1 ORDER BY sequence_order ASC',
-    [packageId]
+    [pkg.id]
   );
   const stages = stagesResult.rows;
   if (stages.length === 0) throw new Error('This package has no stages defined');
@@ -214,8 +292,12 @@ async function generateTherapyPlan(doctorUser, patientId, packageId, options = {
 
     return {
       plan_id: planId,
+      package_id: pkg.id,
       package_name: pkg.name,
       therapy_type: pkg.therapy_type,
+      auto_assigned: resolved.autoAssigned,
+      assignment_reason: resolved.reason,
+      patient_dosha: resolved.confirmedDosha,
       therapist_assigned: scheduleOutput[0]?.sessions[0]?.therapist || primaryTherapist.name,
       schedule: scheduleOutput,
     };

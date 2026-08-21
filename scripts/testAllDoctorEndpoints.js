@@ -153,19 +153,32 @@ async function runTests() {
       authHeaders
     );
     assert.strictEqual(assessmentRes.status, 201, 'Prakriti assessment must succeed');
-    console.log(`✅ Prakriti locked: ${assessmentRes.data.assessment.confirmed_dosha}`);
+    const confirmedDosha = assessmentRes.data.assessment.confirmed_dosha;
+    console.log(`✅ Prakriti locked: ${confirmedDosha}`);
 
-    // 7. POST /api/doctor/patients/:id/therapy-plan (Generate Smart Schedule)
-    console.log('\n--- Step 7: POST /api/doctor/patients/:id/therapy-plan ---');
+    // 6b. Verify AI/Dosha-based Package Recommendation
+    console.log('\n--- Step 6b: GET /api/doctor/therapy-packages?patientId=... (Dosha Recommendation) ---');
+    const recommendedPkgsRes = await req('GET', `/api/doctor/therapy-packages?patientId=${patientId}`, null, authHeaders);
+    assert.strictEqual(recommendedPkgsRes.status, 200, 'GET packages with patientId must succeed');
+    const recommendedPkg = recommendedPkgsRes.data.find((p) => p.isRecommended === true);
+    assert.ok(recommendedPkg, 'Should find at least one recommended package matching patient dosha');
+    assert.strictEqual(recommendedPkg.therapy_type, 'Basti', 'Vata-dominant patient should have Basti protocol recommended');
+    console.log(`✅ Verified Dosha recommendation: "${recommendedPkg.name}" (${recommendedPkg.therapy_type}) is marked isRecommended: true`);
+
+    // 7. POST /api/doctor/patients/:id/therapy-plan (Auto-Assign Based on Confirmed Dosha)
+    console.log('\n--- Step 7: POST /api/doctor/patients/:id/therapy-plan (Auto-Assign by Dosha) ---');
     const planRes = await req(
       'POST',
       `/api/doctor/patients/${patientId}/therapy-plan`,
-      { package_id: packageId },
+      { auto_assign: true }, // No package_id passed -> Auto-assigns based on Vata Prakriti (Basti)
       authHeaders
     );
-    assert.strictEqual(planRes.status, 201, 'Therapy plan creation must succeed');
+    assert.strictEqual(planRes.status, 201, 'Therapy plan creation with auto-assign must succeed');
+    assert.strictEqual(planRes.data.auto_assigned, true, 'Plan response must indicate auto_assigned: true');
+    assert.strictEqual(planRes.data.therapy_type, 'Basti', 'Auto-assigned therapy type must match Vata -> Basti');
+    assert.ok(planRes.data.assignment_reason.includes('Vata-dominant'), 'Assignment reason must cite patient Prakriti');
     planId = planRes.data.plan_id;
-    console.log(`✅ Therapy Plan generated (Plan ID: ${planId}) with stages:`, planRes.data.schedule.map(s => `${s.stage_type}: ${s.sessions.length} sessions`));
+    console.log(`✅ Auto-Assigned Plan generated (Plan ID: ${planId}, Protocol: ${planRes.data.package_name}, Reason: "${planRes.data.assignment_reason}")`);
 
     // Get a session ID for testing logs
     const sessionRes = await pool.query('SELECT id FROM sessions WHERE patient_id = $1 LIMIT 1', [patientId]);

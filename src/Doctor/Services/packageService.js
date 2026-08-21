@@ -31,11 +31,34 @@ function sanitizeStageType(type, index = 0) {
   return 'Pradhanakarma';
 }
 
+function mapDoshaToTherapyType(confirmedDosha) {
+  if (!confirmedDosha) return null;
+  const lower = String(confirmedDosha).toLowerCase();
+  if (lower.includes('vata')) return 'Basti';
+  if (lower.includes('pitta')) return 'Virechana';
+  if (lower.includes('kapha')) return 'Vamana';
+  if (lower.includes('rakta')) return 'Raktamokshana';
+  if (lower.includes('nasya') || lower.includes('shiro')) return 'Nasya';
+  return null;
+}
+
 /**
  * List therapy packages with nested stages and dynamically derived is_standard
- * based on the creator's role.
+ * based on the creator's role, with optional recommendation matching for patient's Prakriti.
  */
-async function listPackages(clinicId) {
+async function listPackages(clinicId, patientId = null) {
+  let targetTherapyType = null;
+  let patientDosha = null;
+
+  if (patientId) {
+    const assessmentRes = await query(
+      `SELECT confirmed_dosha FROM prakriti_assessments WHERE patient_id = $1 ORDER BY assessed_at DESC LIMIT 1`,
+      [patientId]
+    );
+    patientDosha = assessmentRes.rows[0]?.confirmed_dosha || null;
+    targetTherapyType = mapDoshaToTherapyType(patientDosha);
+  }
+
   const packagesQuery = `
     SELECT 
       p.id,
@@ -86,21 +109,31 @@ async function listPackages(clinicId) {
 
   const result = await query(packagesQuery, [clinicId]);
 
-  return result.rows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    therapy_type: row.therapy_type,
-    targetDosha: row.therapy_type,
-    description: `Classical clinical protocol for ${row.name}.`,
-    durationDays: parseInt(row.total_duration_days || 7, 10),
-    duration_days: parseInt(row.total_duration_days || 7, 10),
-    isStandard: Boolean(row.is_standard),
-    is_standard: Boolean(row.is_standard),
-    is_active: row.is_active,
-    created_by: row.created_by,
-    creator_role: row.creator_role || null,
-    stages: row.stages,
-  }));
+  return result.rows.map((row) => {
+    const isRecommended = targetTherapyType
+      ? row.therapy_type.toLowerCase() === targetTherapyType.toLowerCase()
+      : false;
+
+    return {
+      id: row.id,
+      name: row.name,
+      therapy_type: row.therapy_type,
+      targetDosha: row.therapy_type,
+      description: `Classical clinical protocol for ${row.name}.`,
+      durationDays: parseInt(row.total_duration_days || 7, 10),
+      duration_days: parseInt(row.total_duration_days || 7, 10),
+      isStandard: Boolean(row.is_standard),
+      is_standard: Boolean(row.is_standard),
+      is_active: row.is_active,
+      created_by: row.created_by,
+      creator_role: row.creator_role || null,
+      isRecommended,
+      recommendationReason: isRecommended
+        ? `Clinically recommended for ${patientDosha} Prakriti`
+        : null,
+      stages: row.stages,
+    };
+  });
 }
 
 /**
