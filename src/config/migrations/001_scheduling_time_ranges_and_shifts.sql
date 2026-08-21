@@ -33,6 +33,12 @@ BEGIN
         UPDATE sessions 
         SET scheduled_start_time = '10:00:00' 
         WHERE scheduled_start_time IS NULL;
+<<<<<<< HEAD
+=======
+
+        ALTER TABLE sessions 
+        ALTER COLUMN scheduled_start_time SET NOT NULL;
+>>>>>>> origin/doctor-patient-prakriti
     END IF;
 
     IF NOT EXISTS (
@@ -46,6 +52,7 @@ BEGIN
         UPDATE sessions 
         SET scheduled_end_time = (scheduled_start_time + INTERVAL '60 minutes')::TIME 
         WHERE scheduled_end_time IS NULL;
+<<<<<<< HEAD
     END IF;
 END $$;
 
@@ -86,6 +93,18 @@ ALTER TABLE sessions ALTER COLUMN scheduled_end_time SET DEFAULT '11:00:00';
 -- 3. Update status CHECK constraint on sessions to include 'cancelled' if not already permitted
 DO $$
 BEGIN
+=======
+
+        ALTER TABLE sessions 
+        ALTER COLUMN scheduled_end_time SET NOT NULL;
+    END IF;
+END $$;
+
+-- 3. Update status CHECK constraint on sessions to include 'cancelled' if not already permitted
+DO $$
+BEGIN
+    -- Drop old check constraint on status if needed and replace with expanded one
+>>>>>>> origin/doctor-patient-prakriti
     IF EXISTS (
         SELECT 1 FROM pg_constraint WHERE conname = 'sessions_status_check'
     ) THEN

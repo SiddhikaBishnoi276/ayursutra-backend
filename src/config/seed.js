@@ -176,7 +176,7 @@ async function seedDatabase() {
     `, [clinic1Id]);
 
     await client.query('COMMIT');
-    console.log('✅ Seed data inserted successfully!');
+    console.log('✅ Seed data inserted successfully with therapist shifts!');
 
   } catch (error) {
     await client.query('ROLLBACK');

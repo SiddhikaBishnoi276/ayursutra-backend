@@ -22,6 +22,13 @@ const patientRoutes = require('./Patient/Routes/patientRoutes');
 
 // Middleware
 const errorHandler = require('./Common/Middleware/errorHandler');
+const doctorPatientRoutes = require('./Doctor/Routes/patientRoutes');
+const doctorPrakritiRoutes = require('./Doctor/Routes/prakritiRoutes');
+const doctorPackageRoutes = require('./Doctor/Routes/packageRoutes');
+const doctorTherapyPlanRoutes = require('./Doctor/Routes/therapyPlanRoutes');
+const doctorTherapistRoutes = require('./Doctor/Routes/therapistRoutes');
+const doctorProgressRoutes = require('./Doctor/Routes/progressRoutes');
+const doctorDashboardRoutes = require('./Doctor/Routes/dashboardRoutes');
 
 const app = express();
 
@@ -29,6 +36,21 @@ app.use(cors());
 app.use(express.json());
 
 // ── Health Check ──────────────────────────────────────────────────────────────
+
+// Auth & Admin
+app.use('/api/auth', authRoutes);
+app.use('/api/clinics', adminResourceRoutes);
+
+// Doctor Endpoints
+app.use('/api/doctor/patients', doctorPatientRoutes);
+app.use('/api/doctor/patients', doctorTherapyPlanRoutes);
+app.use('/api/doctor/patients', doctorProgressRoutes);
+app.use('/api/doctor/prakriti', doctorPrakritiRoutes);
+app.use('/api/doctor/therapy-packages', doctorPackageRoutes);
+app.use('/api/doctor/packages', doctorPackageRoutes);
+app.use('/api/doctor/therapists', doctorTherapistRoutes);
+app.use('/api/doctor/dashboard', doctorDashboardRoutes);
+
 app.get('/', (req, res) => {
   res.json({ message: 'AyurSutra Backend API running successfully' });
 });

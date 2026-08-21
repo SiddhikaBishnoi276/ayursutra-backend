@@ -46,6 +46,13 @@ async function check() {
       ORDER BY ordinal_position;
     `);
     console.log('Columns:', sessionCols.rows.map(r => `${r.column_name} (${r.data_type})`));
+    const sampleSessions = await pool.query(`
+      SELECT id, scheduled_date, scheduled_start_time, scheduled_end_time, status 
+      FROM sessions 
+      ORDER BY id DESC 
+      LIMIT 3
+    `);
+    console.log('Sample Recent Sessions:', sampleSessions.rows);
 
     console.log('\n==============================================');
     console.log('🔍 3. TABLE: therapy_package_stages (Duration Column)');
@@ -57,6 +64,12 @@ async function check() {
       ORDER BY ordinal_position;
     `);
     console.log('Columns:', stageCols.rows.map(r => `${r.column_name} (${r.data_type})`));
+    const sampleStages = await pool.query(`
+      SELECT id, stage_type, duration_days, session_duration_minutes 
+      FROM therapy_package_stages 
+      LIMIT 3
+    `);
+    console.log('Sample Stages:', sampleStages.rows);
 
     console.log('\n==============================================');
     console.log('🔍 4. INDEXES VERIFICATION');
