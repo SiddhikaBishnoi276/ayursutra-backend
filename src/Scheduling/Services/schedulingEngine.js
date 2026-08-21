@@ -3,6 +3,8 @@ const { addDays, formatDate } = require('../../Common/Utils/dateUtils');
 const {
   normalizeTimeString,
   addMinutesToTime,
+  isTimeRangeWithin,
+  getDayOfWeek,
 } = require('../../Common/Utils/timeUtils');
 const {
   checkTherapistAvailability,
@@ -152,9 +154,72 @@ async function generateTherapyPlan(doctorUser, patientId, packageId, options = {
     const planResult = await client.query(
       `INSERT INTO therapy_plans (patient_id, package_id, doctor_id, status, start_date)
        VALUES ($1, $2, $3, 'active', $4) RETURNING id`,
-      [patientId, packageId, doctorUser.id, formatDate(startDate)]
+      [patientId, pkg.id, doctorUser.id, formatDate(startDate)]
     );
     const planId = planResult.rows[0].id;
+
+    // Batch load shifts, overrides, and existing sessions to avoid hundreds of sequential DB round-trips
+    const therapistIds = clinicTherapists.map(t => t.id);
+    const [shiftsBatch, overridesBatch, existingSessionsBatch] = await Promise.all([
+      client.query(
+        `SELECT therapist_id, day_of_week, start_time, end_time, is_working 
+         FROM therapist_weekly_shifts WHERE therapist_id = ANY($1::uuid[])`,
+        [therapistIds]
+      ),
+      client.query(
+        `SELECT therapist_id, date::text, start_time, end_time, status, is_available, reason 
+         FROM therapist_availability WHERE therapist_id = ANY($1::uuid[]) AND date >= $2`,
+        [therapistIds, formatDate(startDate)]
+      ),
+      client.query(
+        `SELECT id, therapist_id, room_id, scheduled_date::text, scheduled_start_time, scheduled_end_time, status 
+         FROM sessions WHERE status != 'cancelled' AND scheduled_date >= $1`,
+        [formatDate(startDate)]
+      ),
+    ]);
+
+    const cachedShifts = shiftsBatch.rows;
+    const cachedOverrides = overridesBatch.rows;
+    const inMemorySessions = [...existingSessionsBatch.rows];
+
+    function isTherapistAvailableFast(therapistId, dateStr, start, end) {
+      const override = cachedOverrides.find(o => o.therapist_id === therapistId && o.date === dateStr);
+      if (override) {
+        if (override.is_available === false || override.status === 'leave') return false;
+        if (override.start_time && override.end_time) {
+          if (!isTimeRangeWithin(start, end, override.start_time, override.end_time)) return false;
+        }
+      } else {
+        const dow = getDayOfWeek(dateStr);
+        const shift = cachedShifts.find(s => s.therapist_id === therapistId && s.day_of_week === dow);
+        if (shift) {
+          if (!shift.is_working) return false;
+          if (!isTimeRangeWithin(start, end, shift.start_time, shift.end_time)) return false;
+        } else {
+          if (!isTimeRangeWithin(start, end, '08:00:00', '19:00:00')) return false;
+        }
+      }
+
+      const hasConflict = inMemorySessions.some(s =>
+        s.therapist_id === therapistId &&
+        s.scheduled_date === dateStr &&
+        s.status !== 'cancelled' &&
+        normalizeTimeString(s.scheduled_start_time) < end &&
+        normalizeTimeString(s.scheduled_end_time) > start
+      );
+      return !hasConflict;
+    }
+
+    function isRoomAvailableFast(roomId, dateStr, start, end) {
+      const hasConflict = inMemorySessions.some(s =>
+        s.room_id === roomId &&
+        s.scheduled_date === dateStr &&
+        s.status !== 'cancelled' &&
+        normalizeTimeString(s.scheduled_start_time) < end &&
+        normalizeTimeString(s.scheduled_end_time) > start
+      );
+      return !hasConflict;
+    }
 
     const scheduleOutput = [];
     let roomCursor = 0;
@@ -195,15 +260,14 @@ async function generateTherapyPlan(doctorUser, patientId, packageId, options = {
           const slotEnd = addMinutesToTime(slotStart, stageDurationMinutes);
 
           for (const therapistCandidate of clinicTherapists) {
-            const therapistCheck = await checkTherapistAvailability(
-              client,
+            const therapistOk = isTherapistAvailableFast(
               therapistCandidate.id,
               sessionDateStr,
               slotStart,
               slotEnd
             );
 
-            if (!therapistCheck.available) {
+            if (!therapistOk) {
               continue;
             }
 
@@ -212,15 +276,14 @@ async function generateTherapyPlan(doctorUser, patientId, packageId, options = {
               const idx = (roomCursor + r) % rooms.length;
               const candidateRoomId = rooms[idx].id;
 
-              const roomCheck = await checkRoomAvailability(
-                client,
+              const roomOk = isRoomAvailableFast(
                 candidateRoomId,
                 sessionDateStr,
                 slotStart,
                 slotEnd
               );
 
-              if (roomCheck.available) {
+              if (roomOk) {
                 roomCursor = idx + 1;
                 bookedSlot = {
                   therapist: therapistCandidate,
@@ -229,6 +292,14 @@ async function generateTherapyPlan(doctorUser, patientId, packageId, options = {
                   endTime: slotEnd,
                   dateStr: sessionDateStr,
                 };
+                inMemorySessions.push({
+                  therapist_id: therapistCandidate.id,
+                  room_id: candidateRoomId,
+                  scheduled_date: sessionDateStr,
+                  scheduled_start_time: slotStart,
+                  scheduled_end_time: slotEnd,
+                  status: 'scheduled',
+                });
                 break slotLoop;
               }
             }
