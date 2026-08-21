@@ -1,4 +1,5 @@
 const staffService = require('../Services/staffService');
+const { sendStaffCredentialsEmail } = require('../../Common/utils/emailService');
 
 // Allowed values from schema
 const VALID_ROLES = ['doctor', 'therapist'];
@@ -27,11 +28,16 @@ const createStaff = async (req, res) => {
       specializations,
     } = req.body;
 
+    // Default password to 'password@123' if omitted
+    const DEFAULT_STAFF_PASSWORD = 'password@123';
+    const staffPassword = (typeof password === 'string' && password.trim())
+      ? password.trim()
+      : DEFAULT_STAFF_PASSWORD;
+
     // — Required field validation —
     const missing = [];
     if (!name?.trim())     missing.push('name');
     if (!phone?.trim())    missing.push('phone');
-    if (!password?.trim()) missing.push('password');
     if (!role?.trim())     missing.push('role');
     if (!clinic_id)        missing.push('clinic_id');
 
@@ -75,7 +81,7 @@ const createStaff = async (req, res) => {
       name: name.trim(),
       email: email?.trim() || null,
       phone: phone.trim(),
-      password,
+      password: staffPassword,
       gender: gender || null,
       role,
       clinic_id,
@@ -84,6 +90,20 @@ const createStaff = async (req, res) => {
       registration_number: registration_number || null,
       specializations: specializations || [],
     });
+
+    // Asynchronously dispatch welcome credentials email (non-blocking)
+    const recipientEmail = newStaff.email || (email?.trim() || null);
+    if (recipientEmail) {
+      sendStaffCredentialsEmail({
+        toEmail: recipientEmail,
+        name: newStaff.name || name.trim(),
+        role: newStaff.role || role,
+        phone: newStaff.phone || phone.trim(),
+        password: staffPassword,
+      }).catch((emailErr) => {
+        console.error('[createStaff] Non-blocking email dispatch failed:', emailErr.message || emailErr);
+      });
+    }
 
     return res.status(201).json({
       success: true,

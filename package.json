@@ -12,6 +12,7 @@
     "test:scheduling": "node tests/runAllTests.js",
     "test:unit": "node tests/scheduling.unit.test.js",
     "test:integration": "node tests/scheduling.integration.test.js",
+    "test:staff-email": "node tests/staffEmail.test.js",
     "test:doctor-flow": "node scripts/testDoctorFlow.js",
     "dev": "node src/server.js",
     "db:init": "node src/config/initDb.js",
