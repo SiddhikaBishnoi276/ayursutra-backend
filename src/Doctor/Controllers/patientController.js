@@ -4,18 +4,19 @@ async function addPatientHandler(req, res) {
   try {
     const { name, age, gender, contact_number, contact, email, chief_complaint, chiefComplaint, diagnosis } = req.body;
     const phone = contact_number || contact;
-    if (!name || !phone) {
-      return res.status(400).json({ error: 'name and contact (or contact_number) are required' });
+    if (!name || !phone || !email) {
+      return res.status(400).json({ error: 'Patient name, email, and contact number are required.' });
     }
     const result = await addPatient(req.user, {
       name,
       age: age ? parseInt(age, 10) : 35,
       gender: gender || 'Female',
       contact_number: phone,
-      email,
+      email: email.trim().toLowerCase(),
       chief_complaint: chief_complaint || chiefComplaint || 'Clinical evaluation',
       diagnosis,
     });
+
     res.status(201).json(result);
   } catch (err) {
     console.error('Error in addPatientHandler:', err);
