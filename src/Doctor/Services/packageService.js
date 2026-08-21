@@ -9,7 +9,6 @@ function sanitizeTherapyType(type) {
     (t) => t.toLowerCase() === String(type).trim().toLowerCase()
   );
   if (matched) return matched;
-  // If targetDosha or custom string passed, provide safe fallback matching check constraint
   const lower = String(type).toLowerCase();
   if (lower.includes('basti')) return 'Basti';
   if (lower.includes('nasya')) return 'Nasya';
@@ -33,76 +32,63 @@ function sanitizeStageType(type, index = 0) {
 }
 
 /**
- * List therapy packages with nested stages for doctor view and plan builder.
+ * List therapy packages with nested stages array via an aggregated SQL query.
  */
 async function listPackages(clinicId) {
-  const packagesRes = await query(
-    `SELECT id, name, therapy_type, is_active, created_at
-     FROM therapy_packages 
-     WHERE clinic_id = $1 AND is_active = true 
-     ORDER BY name ASC`,
-    [clinicId]
-  );
+  const packagesQuery = `
+    SELECT 
+      p.id,
+      p.name,
+      p.therapy_type,
+      p.is_active,
+      p.created_at,
+      COALESCE(
+        json_agg(
+          json_build_object(
+            'id', s.id,
+            'name', s.stage_type || ' Stage',
+            'category', s.stage_type,
+            'stage_type', s.stage_type,
+            'sequenceOrder', s.sequence_order,
+            'sequence_order', s.sequence_order,
+            'dayOffset', s.day_offset,
+            'day_offset', s.day_offset,
+            'durationDays', s.duration_days,
+            'duration_days', s.duration_days,
+            'durationMinutes', s.session_duration_minutes,
+            'session_duration_minutes', s.session_duration_minutes,
+            'preInstructions', COALESCE(s.pre_instructions, ''),
+            'pre_instructions', COALESCE(s.pre_instructions, ''),
+            'postInstructions', COALESCE(s.post_instructions, ''),
+            'post_instructions', COALESCE(s.post_instructions, ''),
+            'baseDietGuidelines', COALESCE(s.base_diet_framework::text, ''),
+            'base_diet_framework', s.base_diet_framework
+          ) ORDER BY s.sequence_order ASC
+        ) FILTER (WHERE s.id IS NOT NULL),
+        '[]'::json
+      ) AS stages,
+      COALESCE(SUM(s.duration_days), 7) AS total_duration_days
+    FROM therapy_packages p
+    LEFT JOIN therapy_package_stages s ON s.package_id = p.id
+    WHERE p.clinic_id = $1 AND p.is_active = true
+    GROUP BY p.id, p.name, p.therapy_type, p.is_active, p.created_at
+    ORDER BY p.name ASC;
+  `;
 
-  if (packagesRes.rows.length === 0) {
-    return [];
-  }
+  const result = await query(packagesQuery, [clinicId]);
 
-  const packageIds = packagesRes.rows.map((p) => p.id);
-  const stagesRes = await query(
-    `SELECT 
-       id, package_id, stage_type, sequence_order, day_offset, 
-       duration_days, session_duration_minutes, pre_instructions, 
-       post_instructions, base_diet_framework
-     FROM therapy_package_stages
-     WHERE package_id = ANY($1::int[])
-     ORDER BY package_id, sequence_order ASC`,
-    [packageIds]
-  );
-
-  const stagesByPkg = {};
-  for (const stage of stagesRes.rows) {
-    if (!stagesByPkg[stage.package_id]) {
-      stagesByPkg[stage.package_id] = [];
-    }
-    stagesByPkg[stage.package_id].push({
-      id: stage.id,
-      name: `${stage.stage_type} Stage`,
-      category: stage.stage_type,
-      stage_type: stage.stage_type,
-      sequenceOrder: stage.sequence_order,
-      sequence_order: stage.sequence_order,
-      dayOffset: stage.day_offset,
-      day_offset: stage.day_offset,
-      durationDays: stage.duration_days,
-      duration_days: stage.duration_days,
-      durationMinutes: stage.session_duration_minutes,
-      session_duration_minutes: stage.session_duration_minutes,
-      preInstructions: stage.pre_instructions || '',
-      pre_instructions: stage.pre_instructions || '',
-      postInstructions: stage.post_instructions || '',
-      post_instructions: stage.post_instructions || '',
-      baseDietGuidelines: stage.base_diet_framework ? JSON.stringify(stage.base_diet_framework) : '',
-      base_diet_framework: stage.base_diet_framework,
-    });
-  }
-
-  return packagesRes.rows.map((pkg) => {
-    const pkgStages = stagesByPkg[pkg.id] || [];
-    const totalDays = pkgStages.reduce((acc, s) => acc + (s.duration_days || 1), 0) || 7;
-    return {
-      id: pkg.id,
-      name: pkg.name,
-      therapy_type: pkg.therapy_type,
-      targetDosha: pkg.therapy_type,
-      description: `Standardized clinical protocol for ${pkg.name}.`,
-      durationDays: totalDays,
-      duration_days: totalDays,
-      isStandard: true,
-      is_active: pkg.is_active,
-      stages: pkgStages,
-    };
-  });
+  return result.rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    therapy_type: row.therapy_type,
+    targetDosha: row.therapy_type,
+    description: `Classical clinical protocol for ${row.name}.`,
+    durationDays: parseInt(row.total_duration_days || 7, 10),
+    duration_days: parseInt(row.total_duration_days || 7, 10),
+    isStandard: true,
+    is_active: row.is_active,
+    stages: row.stages,
+  }));
 }
 
 /**
