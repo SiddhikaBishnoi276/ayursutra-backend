@@ -1,0 +1,98 @@
+### Prakriti Assessment Diagnostic Questionnaire APIs
+@baseUrl = http://localhost:5000/api
+
+### 1. List all Prakriti Questions
+GET {{baseUrl}}/prakriti-questions
+
+### 2. Add New Prakriti Question (From Screenshot Reference: Body Frame & Skeletal Build)
+POST {{baseUrl}}/prakriti-questions
+Content-Type: application/json
+
+{
+  "question_text": "Which statement best describes your natural body frame and skeletal build?",
+  "is_active": true,
+  "options": [
+    {
+      "option_text": "Thin, tall or short, lean, joints easily click or crack",
+      "dosha_weight": { "vata": 3 }
+    },
+    {
+      "option_text": "Medium build, good muscle tone, joints are moderate and flexible",
+      "dosha_weight": { "pitta": 3 }
+    },
+    {
+      "option_text": "Broad, heavy skeletal frame, tends to gain weight easily, sturdy joints",
+      "dosha_weight": { "kapha": 3 }
+    }
+  ]
+}
+
+### 3. Add Another Predefined Question (Skin Texture)
+POST {{baseUrl}}/prakriti-questions
+Content-Type: application/json
+
+{
+  "question_text": "Touch your arm and face. What describes your skin quality best?",
+  "is_active": true,
+  "options": [
+    {
+      "option_text": "Dry, rough, cool to touch, easily chapped, thin skin",
+      "dosha_weight": { "vata": 3 }
+    },
+    {
+      "option_text": "Warm, soft, oily in T-zone, prone to redness, moles/freckles or acne",
+      "dosha_weight": { "pitta": 3 }
+    },
+    {
+      "option_text": "Thick, oily, cool, smooth, soft, well-hydrated and glowing",
+      "dosha_weight": { "kapha": 3 }
+    }
+  ]
+}
+
+### 4. Get Question By ID
+# Replace :id with actual ID from previous response
+GET {{baseUrl}}/prakriti-questions/1
+
+### 5. Update Question (Add/Replace Options)
+# Replace :id with actual ID
+PUT {{baseUrl}}/prakriti-questions/1
+Content-Type: application/json
+
+{
+  "question_text": "Which statement best describes your natural body frame and skeletal build?",
+  "is_active": true,
+  "options": [
+    {
+      "option_text": "Thin, tall or short, lean, joints easily click or crack",
+      "dosha_weight": { "vata": 3 }
+    },
+    {
+      "option_text": "Medium build, good muscle tone, joints are moderate and flexible",
+      "dosha_weight": { "pitta": 3 }
+    },
+    {
+      "option_text": "Broad, heavy skeletal frame, tends to gain weight easily, sturdy joints",
+      "dosha_weight": { "kapha": 3 }
+    },
+    {
+      "option_text": "Mixed build, hard to tell",
+      "dosha_weight": { "vata": 1, "pitta": 1, "kapha": 1 }
+    }
+  ]
+}
+
+### 6. Add a Single Option to a Question
+POST {{baseUrl}}/prakriti-questions/1/options
+Content-Type: application/json
+
+{
+  "option_text": "Extremely tall and heavily built",
+  "dosha_weight": { "kapha": 2, "vata": 1 }
+}
+
+### 7. Remove/Deactivate Question (Soft Delete)
+DELETE {{baseUrl}}/prakriti-questions/1
+
+### 8. Hard Delete Question (Permanent)
+DELETE {{baseUrl}}/prakriti-questions/1?permanent=true

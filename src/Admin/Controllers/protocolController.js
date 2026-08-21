@@ -19,6 +19,9 @@ const validateStages = (stages) => {
     if (stage.duration_days === undefined || isNaN(stage.duration_days) || stage.duration_days < 0) {
       return `Stage at index ${i}: "duration_days" must be a non-negative number.`;
     }
+    if (stage.session_duration_minutes !== undefined && (isNaN(stage.session_duration_minutes) || stage.session_duration_minutes <= 0)) {
+      return `Stage at index ${i}: "session_duration_minutes" must be a positive integer.`;
+    }
   }
 
   return null; // no error

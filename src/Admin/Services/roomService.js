@@ -100,10 +100,17 @@ const getRoomOccupancy = async (clinic_id) => {
          s.scheduled_date,
          s.scheduled_time,
          s.actual_start_time,
-         s.actual_end_time
+         s.actual_end_time,
+         du.name AS doctor_name,
+         tps.stage_type AS stage_name,
+         tps_pkg.session_duration_minutes AS duration_minutes
        FROM sessions s
        LEFT JOIN users tu ON tu.id = s.therapist_id
        LEFT JOIN users pu ON pu.id = s.patient_id
+       LEFT JOIN therapy_plan_stages tps ON tps.id = s.plan_stage_id
+       LEFT JOIN therapy_plans tp ON tp.id = tps.plan_id
+       LEFT JOIN users du ON du.id = tp.doctor_id
+       LEFT JOIN therapy_package_stages tps_pkg ON tps_pkg.id = tps.package_stage_id
        WHERE s.room_id = r.id
          AND s.status = 'in_progress'
        LIMIT 1
@@ -114,11 +121,18 @@ const getRoomOccupancy = async (clinic_id) => {
   );
 
   return result.rows.map((row) => ({
-    id: row.id,
-    name: row.name,
+    id: row.id.toString(),
+    name: `Room ${row.id}`,
+    type: row.name,
+    status: row.occupancy_status,
     clinic_id: row.clinic_id,
-    stored_status: row.stored_status,
-    occupancy_status: row.occupancy_status,
+    currentSessionId: row.active_session_id ? `SESS-${row.active_session_id}` : undefined,
+    therapistName: row.therapist_name || undefined,
+    patientName: row.patient_name || undefined,
+    doctorName: row.doctor_name || undefined,
+    stageName: row.stage_name || undefined,
+    durationMinutes: row.duration_minutes || undefined,
+    scheduledTime: row.scheduled_time || undefined,
     active_session: row.active_session_id
       ? {
           session_id: row.active_session_id,
@@ -142,4 +156,33 @@ const getRoomOccupancy = async (clinic_id) => {
   }));
 };
 
-module.exports = { createRoom, getAllRooms, getRoomOccupancy };
+// ─────────────────────────────────────────────────────────────────────────────
+// UPDATE ROOM STATUS
+// ─────────────────────────────────────────────────────────────────────────────
+const updateRoomStatus = async (id, status) => {
+  // We map the UI status to the DB status enum
+  const dbStatus = status === 'Under Maintenance' ? 'under_maintenance' : status.toLowerCase();
+  
+  const result = await pool.query(
+    `UPDATE rooms 
+     SET status = $1 
+     WHERE id = $2
+     RETURNING id, name, clinic_id, status`,
+    [dbStatus, id]
+  );
+  
+  if (result.rows.length === 0) {
+    throw new Error('Room not found');
+  }
+
+  const row = result.rows[0];
+  return {
+    id: row.id.toString(),
+    name: `Room ${row.id}`,
+    type: row.name,
+    status: row.status === 'under_maintenance' ? 'Under Maintenance' : row.status === 'occupied' ? 'Occupied' : 'Available',
+    clinic_id: row.clinic_id
+  };
+};
+
+module.exports = { createRoom, getAllRooms, getRoomOccupancy, updateRoomStatus };

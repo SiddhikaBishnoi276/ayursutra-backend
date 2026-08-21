@@ -121,6 +121,17 @@ CREATE TABLE IF NOT EXISTS therapist_availability (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 2.5 Therapist Weekly Shifts (Recurring Working Hours)
+CREATE TABLE IF NOT EXISTS therapist_weekly_shifts (
+    id SERIAL PRIMARY KEY,
+    therapist_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    day_of_week INT NOT NULL CHECK (day_of_week BETWEEN 0 AND 6),
+    start_time TIME NOT NULL,
+    end_time TIME NOT NULL,
+    is_working BOOLEAN DEFAULT TRUE,
+    CONSTRAINT unique_therapist_shift_day UNIQUE (therapist_id, day_of_week)
+);
+
 -- ==============================================================================
 -- 3. RESOURCE MANAGEMENT (ROOMS & EQUIPMENT)
 -- ==============================================================================
@@ -173,6 +184,7 @@ CREATE TABLE IF NOT EXISTS therapy_package_stages (
 -- 4.3 Prakriti Questions
 CREATE TABLE IF NOT EXISTS prakriti_questions (
     id SERIAL PRIMARY KEY,
+    attribute VARCHAR(255),
     question_text TEXT NOT NULL,
     is_active BOOLEAN DEFAULT TRUE
 );
@@ -258,7 +270,6 @@ CREATE TABLE IF NOT EXISTS sessions (
     therapist_id UUID REFERENCES users(id) ON DELETE SET NULL,
     room_id INT REFERENCES rooms(id) ON DELETE SET NULL,
     scheduled_date DATE NOT NULL,
-    scheduled_time TIME NOT NULL,
     scheduled_start_time TIME NOT NULL DEFAULT '10:00:00',
     scheduled_end_time TIME NOT NULL DEFAULT '11:00:00',
     status VARCHAR(50) DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'in_progress', 'completed', 'no_show', 'cancelled')),
@@ -416,8 +427,8 @@ CREATE INDEX IF NOT EXISTS idx_sessions_patient_id ON sessions(patient_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_therapist_id ON sessions(therapist_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_room_id ON sessions(room_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
-CREATE INDEX IF NOT EXISTS idx_sessions_therapist_range ON sessions(therapist_id, scheduled_date, scheduled_start_time, scheduled_end_time);
-CREATE INDEX IF NOT EXISTS idx_sessions_room_range ON sessions(room_id, scheduled_date, scheduled_start_time, scheduled_end_time);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_therapist_slot ON sessions(therapist_id, scheduled_date, scheduled_time) WHERE therapist_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_room_slot ON sessions(room_id, scheduled_date, scheduled_time) WHERE room_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_complication_alerts_doctor_id ON complication_alerts(doctor_id);
 CREATE INDEX IF NOT EXISTS idx_complication_alerts_status ON complication_alerts(status);
