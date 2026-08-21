@@ -1,12 +1,13 @@
 const bcrypt = require('bcryptjs');
 const { pool, query } = require('../../config/db');
+const { sendPatientCredentialsEmail } = require('../../Common/Services/emailService');
 
 function generateMockPassword() {
   return Math.random().toString(36).slice(-6).toUpperCase();
 }
 
 /**
- * Register a new patient and initialize credentials log.
+ * Register a new patient and initialize credentials log (SMS & Email).
  */
 async function addPatient(doctorUser, { name, age, gender, contact_number, contact, email, chief_complaint, chiefComplaint, diagnosis }) {
   const client = await pool.connect();
@@ -39,7 +40,28 @@ async function addPatient(doctorUser, { name, age, gender, contact_number, conta
       [newUser.id]
     );
 
+    if (newUser.email) {
+      await client.query(
+        `INSERT INTO credential_delivery_log (user_id, channel, status) VALUES ($1, 'email', 'sent')`,
+        [newUser.id]
+      );
+    }
+
     await client.query('COMMIT');
+
+    // Trigger email notification asynchronously (non-blocking)
+    if (newUser.email) {
+      sendPatientCredentialsEmail({
+        patientName: newUser.name,
+        email: newUser.email,
+        phone: newUser.phone,
+        tempPassword: rawPassword,
+        patientId: newUser.id,
+        clinicName: 'AyurSutra Clinic',
+      }).catch((err) => {
+        console.error(`❌ [EmailService Error] Failed to send credentials email to ${newUser.email}:`, err.message);
+      });
+    }
 
     return {
       id: newUser.id,
@@ -61,6 +83,16 @@ async function addPatient(doctorUser, { name, age, gender, contact_number, conta
         to: newUser.phone,
         message: `SMS sent to ${newUser.phone}: Login ID: ${newUser.phone}, Password: ${rawPassword} — ${newUser.name} can now log in to view their schedule`,
       },
+      email_notification: newUser.email
+        ? {
+            sent: true,
+            to: newUser.email,
+            message: `Credentials email dispatched to ${newUser.email}`,
+          }
+        : {
+            sent: false,
+            reason: 'NO_EMAIL_PROVIDED',
+          },
     };
   } catch (err) {
     await client.query('ROLLBACK');
