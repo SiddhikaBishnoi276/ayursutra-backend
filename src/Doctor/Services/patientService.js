@@ -3,8 +3,10 @@ const { pool, query } = require('../../config/db');
 const { sendPatientCredentialsEmail } = require('../../Common/Services/emailService');
 
 function generateMockPassword() {
-  return Math.random().toString(36).slice(-6).toUpperCase();
+  const digits = Math.floor(1000 + Math.random() * 9000);
+  return `Ayur@${digits}`;
 }
+
 
 /**
  * Register a new patient and initialize credentials log (SMS & Email).

@@ -48,7 +48,7 @@ function generateStaffCredentialsHtml({ name, role, toEmail, phone, password }) 
     ? role.charAt(0).toUpperCase() + role.slice(1).toLowerCase()
     : 'Staff';
   const staffPassword = password || 'password@123';
-  const loginIdentifier = phone || toEmail || 'Registered Mobile';
+  const loginIdentifier = toEmail || phone || 'Registered Email';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -60,158 +60,177 @@ function generateStaffCredentialsHtml({ name, role, toEmail, phone, password }) 
     body {
       margin: 0;
       padding: 0;
-      background-color: #f4f6f3;
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-      color: #2b3a33;
+      background-color: #FDFDFA;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      color: #30352F;
       -webkit-font-smoothing: antialiased;
     }
+    .email-wrapper {
+      width: 100%;
+      background-color: #FDFDFA;
+      padding: 30px 10px;
+    }
     .email-container {
-      max-width: 600px;
-      margin: 30px auto;
-      background: #ffffff;
-      border-radius: 12px;
+      max-width: 580px;
+      margin: 0 auto;
+      background: #FFFFFF;
+      border-radius: 16px;
       overflow: hidden;
-      box-shadow: 0 4px 20px rgba(27, 67, 50, 0.08);
-      border: 1px solid #e2ebe4;
+      box-shadow: 0 10px 30px rgba(3, 48, 21, 0.08);
+      border: 1px solid #E1E4DA;
     }
     .header {
-      background: linear-gradient(135deg, #1b4332 0%, #2d6a4f 100%);
-      padding: 35px 25px;
+      background: linear-gradient(135deg, #033015 0%, #0c3b17 60%, #1b4332 100%);
+      padding: 38px 24px 30px 24px;
       text-align: center;
-      color: #ffffff;
-      border-bottom: 4px solid #d4af37;
+      color: #FFFFFF;
+      border-bottom: 4px solid #C9B884;
+    }
+    .logo-emblem {
+      width: 56px;
+      height: 56px;
+      margin: 0 auto 12px auto;
+      background: rgba(201, 184, 132, 0.15);
+      border: 2px solid #C9B884;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
     .header h1 {
       margin: 0;
-      font-size: 26px;
+      font-family: 'Playfair Display', Georgia, serif;
+      font-size: 28px;
       font-weight: 700;
-      letter-spacing: 0.5px;
+      letter-spacing: 0.8px;
+      color: #FFFFFF;
     }
     .header p {
       margin: 6px 0 0 0;
-      font-size: 13px;
-      color: #e8f5e9;
+      font-size: 11px;
+      color: #C9B884;
       text-transform: uppercase;
-      letter-spacing: 1.5px;
+      letter-spacing: 2px;
+      font-weight: 600;
     }
     .content {
-      padding: 35px 30px;
+      padding: 36px 32px;
+      background-color: #FFFFFF;
     }
     .greeting {
-      font-size: 18px;
-      font-weight: 600;
-      color: #1b4332;
+      font-family: 'Playfair Display', Georgia, serif;
+      font-size: 20px;
+      font-weight: 700;
+      color: #033015;
       margin-bottom: 12px;
     }
     .welcome-text {
-      font-size: 15px;
-      line-height: 1.6;
-      color: #495e54;
-      margin-bottom: 25px;
+      font-size: 14px;
+      line-height: 1.65;
+      color: #4A524A;
+      margin-bottom: 24px;
     }
     .role-badge {
       display: inline-block;
-      background: #e8f5e9;
-      color: #1b4332;
-      font-size: 12px;
+      background: #E9EBDD;
+      color: #033015;
+      font-size: 11px;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.8px;
-      padding: 3px 8px;
-      border-radius: 4px;
-      border: 1px solid #c8e6c9;
+      padding: 3px 10px;
+      border-radius: 20px;
+      border: 1px solid #C9B884;
       vertical-align: middle;
     }
     .credentials-card {
-      background: #f8faf7;
-      border: 1px solid #d8e5db;
-      border-left: 5px solid #2d6a4f;
-      border-radius: 8px;
+      background: #F9F8F2;
+      border: 1px solid #E1E4DA;
+      border-left: 5px solid #C9B884;
+      border-radius: 12px;
       padding: 22px;
-      margin-bottom: 28px;
+      margin: 24px 0 28px 0;
     }
     .card-title {
-      font-size: 14px;
+      font-family: 'Playfair Display', Georgia, serif;
+      font-size: 15px;
       font-weight: 700;
-      color: #1b4332;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      margin-bottom: 14px;
+      color: #033015;
+      letter-spacing: 0.5px;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
     }
     .cred-row {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 9px 0;
-      border-bottom: 1px dashed #d8e5db;
-      font-size: 14px;
+      padding: 10px 0;
+      border-bottom: 1px dashed #E1E4DA;
+      font-size: 13px;
     }
     .cred-row:last-child {
       border-bottom: none;
+      padding-bottom: 2px;
     }
     .cred-label {
-      color: #5b7267;
+      color: #667064;
       font-weight: 500;
     }
     .cred-value {
-      color: #1b4332;
+      color: #033015;
       font-weight: 700;
     }
     .password-badge {
-      background: #e8f5e9;
-      color: #1b4332;
+      background: #FFFFFF;
+      color: #033015;
       font-family: 'Courier New', Courier, monospace;
-      padding: 4px 10px;
-      border-radius: 6px;
-      border: 1px solid #b7dfb9;
+      padding: 6px 14px;
+      border-radius: 8px;
+      border: 1.5px solid #C9B884;
       font-size: 15px;
-      letter-spacing: 1px;
+      letter-spacing: 1.5px;
       font-weight: 700;
+      box-shadow: 0 2px 6px rgba(3, 48, 21, 0.05);
     }
     .cta-container {
       text-align: center;
-      margin: 30px 0 25px 0;
+      margin: 30px 0 26px 0;
     }
     .cta-button {
-      background: linear-gradient(135deg, #2d6a4f 0%, #1b4332 100%);
-      color: #ffffff !important;
-      padding: 14px 34px;
+      background: #033015;
+      color: #FFFFFF !important;
+      padding: 15px 36px;
       text-decoration: none;
       font-weight: 600;
-      font-size: 15px;
-      border-radius: 8px;
+      font-size: 14px;
+      border-radius: 10px;
       display: inline-block;
-      box-shadow: 0 4px 12px rgba(45, 106, 79, 0.25);
+      box-shadow: 0 4px 14px rgba(3, 48, 21, 0.25);
       letter-spacing: 0.5px;
+      border: 1px solid #C9B884;
     }
     .security-note {
-      background: #fffdf5;
-      border: 1px solid #faeec7;
-      border-radius: 8px;
+      background: #FDFDFA;
+      border: 1px solid #E1E4DA;
+      border-radius: 10px;
       padding: 14px 18px;
-      font-size: 13px;
-      line-height: 1.5;
-      color: #856404;
-      margin-bottom: 25px;
+      font-size: 12px;
+      line-height: 1.55;
+      color: #667064;
+      margin-bottom: 22px;
     }
     .security-note strong {
-      color: #533f03;
-    }
-    .quote-box {
-      border-top: 1px solid #e2ebe4;
-      padding-top: 20px;
-      text-align: center;
-      font-style: italic;
-      color: #728c7f;
-      font-size: 13px;
+      color: #033015;
     }
     .footer {
-      background: #f1f4f0;
-      padding: 22px;
+      background: #F9F8F2;
+      padding: 24px;
       text-align: center;
       font-size: 12px;
-      color: #728c7f;
-      border-top: 1px solid #e2ebe4;
+      color: #667064;
+      border-top: 1px solid #E1E4DA;
     }
     .footer p {
       margin: 4px 0;
@@ -219,56 +238,62 @@ function generateStaffCredentialsHtml({ name, role, toEmail, phone, password }) 
   </style>
 </head>
 <body>
-  <div class="email-container">
-    <div class="header">
-      <h1>🌿 AyurSutra</h1>
-      <p>Panchakarma & Clinical Management Portal</p>
-    </div>
-
-    <div class="content">
-      <div class="greeting">Namaste, ${name || 'Staff Member'}! 🙏</div>
-      <div class="welcome-text">
-        Welcome to the AyurSutra Clinical Team. Your staff account has been set up with the role of <span class="role-badge">${roleTitle}</span>. You can now log in to the AyurSutra staff portal to access clinical workflows, schedules, and patient management.
+  <div class="email-wrapper">
+    <div class="email-container">
+      <div class="header">
+        <div style="font-size: 32px; line-height: 1; margin-bottom: 6px;">🌿</div>
+        <h1>AyurSutra</h1>
+        <p>Smart Panchakarma & Clinical Wellness</p>
       </div>
 
-      <div class="credentials-card">
-        <div class="card-title">🔐 Your Staff Login Credentials</div>
-        <div class="cred-row">
-          <span class="cred-label">Designated Role:</span>
-          <span class="cred-value">${roleTitle}</span>
+      <div class="content">
+        <div class="greeting">Namaste, ${name || 'Staff Member'}! 🙏</div>
+        <div class="welcome-text">
+          Welcome to the AyurSutra Clinical Team. Your staff account has been set up with the role of <span class="role-badge">${roleTitle}</span>. You can now access your clinical dashboard, therapy schedules, and EMR portal.
         </div>
-        <div class="cred-row">
-          <span class="cred-label">Login Identifier (Phone / Email):</span>
-          <span class="cred-value">${loginIdentifier}</span>
+
+        <div class="credentials-card">
+          <div class="card-title">🔐 Your Staff Login Credentials</div>
+          <div class="cred-row">
+            <span class="cred-label">Assigned Role:</span>
+            <span class="cred-value">${roleTitle}</span>
+          </div>
+          <div class="cred-row">
+            <span class="cred-label">Login Identifier:</span>
+            <span class="cred-value">${loginIdentifier}</span>
+          </div>
+          ${toEmail ? `
+          <div class="cred-row">
+            <span class="cred-label">Registered Email:</span>
+            <span class="cred-value">${toEmail}</span>
+          </div>` : ''}
+          ${phone ? `
+          <div class="cred-row">
+            <span class="cred-label">Mobile Number:</span>
+            <span class="cred-value">${phone}</span>
+          </div>` : ''}
+          <div class="cred-row" style="margin-top: 6px; padding-top: 12px;">
+            <span class="cred-label">Temporary Password:</span>
+            <span class="password-badge">${staffPassword}</span>
+          </div>
         </div>
-        ${toEmail ? `
-        <div class="cred-row">
-          <span class="cred-label">Registered Email:</span>
-          <span class="cred-value">${toEmail}</span>
-        </div>` : ''}
-        <div class="cred-row">
-          <span class="cred-label">Default Password:</span>
-          <span class="cred-value password-badge">${staffPassword}</span>
+
+        <div class="cta-container">
+          <a href="${loginUrl}" target="_blank" class="cta-button">
+            Access Staff Portal &rarr;
+          </a>
+        </div>
+
+        <div class="security-note">
+          <strong>🔒 Security Recommendation:</strong> Please change your password upon your initial login. Never share these credentials with unauthorized personnel.
         </div>
       </div>
 
-      <div class="cta-container">
-        <a href="${loginUrl}" class="cta-button" target="_blank">Sign In to Staff Portal</a>
+      <div class="footer">
+        <p style="font-weight: 600; color: #033015;">AyurSutra Clinical Administration</p>
+        <p>Holistic Healing & Traditional Panchakarma Management Platform</p>
+        <p style="font-size: 11px; color: #8C968A; margin-top: 10px;">&copy; ${new Date().getFullYear()} AyurSutra. All rights reserved.</p>
       </div>
-
-      <div class="security-note">
-        <strong>🔒 Security Notice:</strong> This is a default temporary password. For healthcare privacy and compliance, please change your password immediately upon your first sign-in in your account settings.
-      </div>
-
-      <div class="quote-box">
-        &ldquo;Shariram Adhyam Khalu Dharma Sadhanam&rdquo;<br>
-        <span style="font-size: 11px;">(The body is the primary vehicle for fulfilling all life's purposes - Kalidasa)</span>
-      </div>
-    </div>
-
-    <div class="footer">
-      <p>This is an automated administrative notification from AyurSutra Healthcare. Please do not reply directly to this email.</p>
-      <p>&copy; ${new Date().getFullYear()} AyurSutra Healthcare Technologies. All rights reserved.</p>
     </div>
   </div>
 </body>
@@ -373,155 +398,171 @@ function generatePatientCredentialsHtml({ patientName, email, phone, tempPasswor
   const frontendUrl = getFrontendUrl();
   const portalUrl = loginUrl || `${frontendUrl}/login`;
   const clinic = clinicName || 'AyurSutra Holistic Clinic';
+  const cleanPassword = tempPassword || 'Ayur@2026';
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Welcome to AyurSutra - Your Login Credentials</title>
+  <title>Welcome to AyurSutra - Your Patient Login Credentials</title>
   <style>
     body {
       margin: 0;
       padding: 0;
-      background-color: #f4f6f3;
-      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-      color: #2b3a33;
+      background-color: #FDFDFA;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      color: #30352F;
       -webkit-font-smoothing: antialiased;
     }
+    .email-wrapper {
+      width: 100%;
+      background-color: #FDFDFA;
+      padding: 30px 10px;
+    }
     .email-container {
-      max-width: 600px;
-      margin: 30px auto;
-      background: #ffffff;
-      border-radius: 12px;
+      max-width: 580px;
+      margin: 0 auto;
+      background: #FFFFFF;
+      border-radius: 16px;
       overflow: hidden;
-      box-shadow: 0 4px 20px rgba(27, 67, 50, 0.08);
-      border: 1px solid #e2ebe4;
+      box-shadow: 0 10px 30px rgba(3, 48, 21, 0.08);
+      border: 1px solid #E1E4DA;
     }
     .header {
-      background: linear-gradient(135deg, #1b4332 0%, #2d6a4f 100%);
-      padding: 35px 25px;
+      background: linear-gradient(135deg, #033015 0%, #0c3b17 60%, #1b4332 100%);
+      padding: 38px 24px 30px 24px;
       text-align: center;
-      color: #ffffff;
-      border-bottom: 4px solid #d4af37;
+      color: #FFFFFF;
+      border-bottom: 4px solid #C9B884;
     }
     .header h1 {
       margin: 0;
-      font-size: 26px;
+      font-family: 'Playfair Display', Georgia, serif;
+      font-size: 28px;
       font-weight: 700;
-      letter-spacing: 0.5px;
+      letter-spacing: 0.8px;
+      color: #FFFFFF;
     }
     .header p {
       margin: 6px 0 0 0;
-      font-size: 13px;
-      color: #e8f5e9;
+      font-size: 11px;
+      color: #C9B884;
       text-transform: uppercase;
-      letter-spacing: 1.5px;
+      letter-spacing: 2px;
+      font-weight: 600;
     }
     .content {
-      padding: 35px 30px;
+      padding: 36px 32px;
+      background-color: #FFFFFF;
     }
     .greeting {
-      font-size: 18px;
-      font-weight: 600;
-      color: #1b4332;
+      font-family: 'Playfair Display', Georgia, serif;
+      font-size: 22px;
+      font-weight: 700;
+      color: #033015;
       margin-bottom: 12px;
     }
     .welcome-text {
-      font-size: 15px;
-      line-height: 1.6;
-      color: #495e54;
-      margin-bottom: 25px;
+      font-size: 14px;
+      line-height: 1.65;
+      color: #4A524A;
+      margin-bottom: 24px;
     }
     .credentials-card {
-      background: #f8faf7;
-      border: 1px solid #d8e5db;
-      border-left: 5px solid #2d6a4f;
-      border-radius: 8px;
+      background: #F9F8F2;
+      border: 1px solid #E1E4DA;
+      border-left: 5px solid #C9B884;
+      border-radius: 12px;
       padding: 22px;
-      margin-bottom: 28px;
+      margin: 24px 0 28px 0;
     }
     .card-title {
-      font-size: 14px;
+      font-family: 'Playfair Display', Georgia, serif;
+      font-size: 15px;
       font-weight: 700;
-      color: #1b4332;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      margin-bottom: 14px;
+      color: #033015;
+      letter-spacing: 0.5px;
+      margin-bottom: 16px;
     }
     .cred-row {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 9px 0;
-      border-bottom: 1px dashed #d8e5db;
-      font-size: 14px;
+      padding: 10px 0;
+      border-bottom: 1px dashed #E1E4DA;
+      font-size: 13px;
     }
     .cred-row:last-child {
       border-bottom: none;
+      padding-bottom: 2px;
     }
     .cred-label {
-      color: #5b7267;
+      color: #667064;
       font-weight: 500;
     }
     .cred-value {
-      color: #1b4332;
+      color: #033015;
       font-weight: 700;
     }
     .password-badge {
-      background: #e8f5e9;
-      color: #1b4332;
+      background: #FFFFFF;
+      color: #033015;
       font-family: 'Courier New', Courier, monospace;
-      padding: 4px 10px;
-      border-radius: 6px;
-      border: 1px solid #b7dfb9;
+      padding: 6px 14px;
+      border-radius: 8px;
+      border: 1.5px solid #C9B884;
       font-size: 16px;
-      letter-spacing: 1px;
+      letter-spacing: 1.5px;
+      font-weight: 700;
+      box-shadow: 0 2px 6px rgba(3, 48, 21, 0.05);
     }
     .cta-container {
       text-align: center;
-      margin: 32px 0 25px 0;
+      margin: 30px 0 26px 0;
     }
     .cta-button {
-      background: linear-gradient(135deg, #2d6a4f 0%, #1b4332 100%);
-      color: #ffffff !important;
-      padding: 14px 34px;
+      background: #033015;
+      color: #FFFFFF !important;
+      padding: 15px 36px;
       text-decoration: none;
       font-weight: 600;
-      font-size: 15px;
-      border-radius: 8px;
+      font-size: 14px;
+      border-radius: 10px;
       display: inline-block;
-      box-shadow: 0 4px 12px rgba(45, 106, 79, 0.25);
+      box-shadow: 0 4px 14px rgba(3, 48, 21, 0.25);
       letter-spacing: 0.5px;
+      border: 1px solid #C9B884;
     }
     .security-note {
-      background: #fffdf5;
-      border: 1px solid #faeec7;
-      border-radius: 8px;
+      background: #FDFDFA;
+      border: 1px solid #E1E4DA;
+      border-radius: 10px;
       padding: 14px 18px;
-      font-size: 13px;
-      line-height: 1.5;
-      color: #856404;
-      margin-bottom: 25px;
+      font-size: 12px;
+      line-height: 1.55;
+      color: #667064;
+      margin-bottom: 22px;
     }
     .security-note strong {
-      color: #533f03;
+      color: #033015;
     }
     .quote-box {
-      border-top: 1px solid #e2ebe4;
+      border-top: 1px solid #E1E4DA;
       padding-top: 20px;
       text-align: center;
       font-style: italic;
-      color: #728c7f;
-      font-size: 13px;
+      color: #667064;
+      font-size: 12px;
+      line-height: 1.6;
     }
     .footer {
-      background: #f1f4f0;
-      padding: 22px;
+      background: #F9F8F2;
+      padding: 24px;
       text-align: center;
       font-size: 12px;
-      color: #728c7f;
-      border-top: 1px solid #e2ebe4;
+      color: #667064;
+      border-top: 1px solid #E1E4DA;
     }
     .footer p {
       margin: 4px 0;
@@ -529,62 +570,68 @@ function generatePatientCredentialsHtml({ patientName, email, phone, tempPasswor
   </style>
 </head>
 <body>
-  <div class="email-container">
-    <div class="header">
-      <h1>🌿 AyurSutra</h1>
-      <p>Panchakarma & Holistic Care Portal</p>
-    </div>
-
-    <div class="content">
-      <div class="greeting">Namaste, ${patientName || 'Valued Patient'}! 🙏</div>
-      <div class="welcome-text">
-        Welcome to <strong>${clinic}</strong>. Your personalized Ayurvedic healing and Panchakarma treatment profile has been successfully set up. You can now log in to the AyurSutra patient portal to view your treatment schedule, daily diet regimens (<em>Pathya</em>), and clinical progress.
+  <div class="email-wrapper">
+    <div class="email-container">
+      <div class="header">
+        <div style="font-size: 32px; line-height: 1; margin-bottom: 6px;">🌿</div>
+        <h1>AyurSutra</h1>
+        <p>Smart Panchakarma & Patient Portal</p>
       </div>
 
-      <div class="credentials-card">
-        <div class="card-title">🔐 Your Patient Login Credentials</div>
-        ${patientId ? `
-        <div class="cred-row">
-          <span class="cred-label">Patient ID:</span>
-          <span class="cred-value">${patientId}</span>
-        </div>` : ''}
-        <div class="cred-row">
-          <span class="cred-label">Login Identifier (Phone / Email):</span>
-          <span class="cred-value">${phone || email || 'Registered Mobile'}</span>
+      <div class="content">
+        <div class="greeting">Namaste, ${patientName || 'Valued Patient'}! 🙏</div>
+        <div class="welcome-text">
+          Welcome to <strong>${clinic}</strong>. Your personalized AyurSutra patient account has been created. You can now log in to view your prescribed Panchakarma therapy schedules, daily diet instructions (Pathya Apathya), and treatment progress.
         </div>
-        ${email ? `
-        <div class="cred-row">
-          <span class="cred-label">Registered Email:</span>
-          <span class="cred-value">${email}</span>
-        </div>` : ''}
-        <div class="cred-row">
-          <span class="cred-label">Temporary Password:</span>
-          <span class="cred-value password-badge">${tempPassword}</span>
+
+        <div class="credentials-card">
+          <div class="card-title">🔐 Your Patient Login Credentials</div>
+          <div class="cred-row">
+            <span class="cred-label">Patient Name:</span>
+            <span class="cred-value">${patientName}</span>
+          </div>
+          <div class="cred-row">
+            <span class="cred-label">Login Identifier (Email / Phone):</span>
+            <span class="cred-value">${email || phone}</span>
+          </div>
+          ${phone ? `
+          <div class="cred-row">
+            <span class="cred-label">Registered Mobile:</span>
+            <span class="cred-value">${phone}</span>
+          </div>` : ''}
+          <div class="cred-row" style="margin-top: 6px; padding-top: 12px;">
+            <span class="cred-label">Temporary Password:</span>
+            <span class="password-badge">${cleanPassword}</span>
+          </div>
+        </div>
+
+        <div class="cta-container">
+          <a href="${portalUrl}" target="_blank" class="cta-button">
+            Access Patient Portal &rarr;
+          </a>
+        </div>
+
+        <div class="security-note">
+          <strong>🌿 Tip for Your Therapy:</strong> Please log in to review your pre-procedure fasting and diet instructions prior to your scheduled therapy sessions.
+        </div>
+
+        <div class="quote-box">
+          <em>&ldquo;Swasthyasya Swasthya Rakshanam, Aturasya Vikara Prashamanam Cha.&rdquo;</em><br>
+          <span style="font-size: 11px; color: #8C968A;">— Charaka Samhita (Preserving health of the healthy and relieving disorders of the diseased)</span>
         </div>
       </div>
 
-      <div class="cta-container">
-        <a href="${portalUrl}" class="cta-button" target="_blank">Sign In to Patient Portal</a>
+      <div class="footer">
+        <p style="font-weight: 600; color: #033015;">${clinic}</p>
+        <p>Powered by AyurSutra Panchakarma Management Platform</p>
+        <p style="font-size: 11px; color: #8C968A; margin-top: 10px;">&copy; ${new Date().getFullYear()} AyurSutra. All rights reserved.</p>
       </div>
-
-      <div class="security-note">
-        <strong>🔒 Security Advisory:</strong> For your privacy and data protection, please change your temporary password immediately upon your first sign-in under <em>Profile &rarr; Security Settings</em>.
-      </div>
-
-      <div class="quote-box">
-        &ldquo;Swasthyasya Swasthya Rakshanam, Aturasya Vikara Prashamanam Cha&rdquo;<br>
-        <span style="font-size: 11px;">(Preserve the health of the healthy, and relieve the disorders of the ailing - Charaka Samhita)</span>
-      </div>
-    </div>
-
-    <div class="footer">
-      <p>This is an automated notification from ${clinic}. Please do not reply directly to this email.</p>
-      <p>&copy; ${new Date().getFullYear()} AyurSutra Healthcare Technologies. All rights reserved.</p>
     </div>
   </div>
 </body>
 </html>`;
 }
+
 
 /**
  * Send patient credentials email asynchronously without blocking registration execution.
