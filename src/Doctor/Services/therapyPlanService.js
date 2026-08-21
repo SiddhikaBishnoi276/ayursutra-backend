@@ -1,8 +1,8 @@
 const { generateTherapyPlan } = require('../../Scheduling/Services/schedulingEngine');
 const { query } = require('../../config/db');
 
-async function createPlanForPatient(doctorUser, patientId, packageId) {
-  const scheduleResult = await generateTherapyPlan(doctorUser, patientId, packageId);
+async function createPlanForPatient(doctorUser, patientId, packageId, options = {}) {
+  const scheduleResult = await generateTherapyPlan(doctorUser, patientId, packageId, options);
 
   const patientResult = await query('SELECT name, phone FROM users WHERE id = $1', [patientId]);
   const patient = patientResult.rows[0];

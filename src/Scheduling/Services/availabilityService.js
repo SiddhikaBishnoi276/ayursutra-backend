@@ -70,21 +70,33 @@ async function checkTherapistAvailability(dbClient, therapistId, dateStr, startT
 
     const shift = shiftRes.rows[0];
 
-    if (!shift || !shift.is_working) {
-      return {
-        available: false,
-        layer: 'weekly_shift',
-        reason: `Therapist is not scheduled to work on day ${dayOfWeek} (day off)`,
-      };
-    }
+    if (shift) {
+      if (!shift.is_working) {
+        return {
+          available: false,
+          layer: 'weekly_shift',
+          reason: `Therapist is not scheduled to work on day ${dayOfWeek} (day off)`,
+        };
+      }
 
-    const withinShift = isTimeRangeWithin(start, end, shift.start_time, shift.end_time);
-    if (!withinShift) {
-      return {
-        available: false,
-        layer: 'weekly_shift',
-        reason: `Requested time (${start} - ${end}) is outside therapist regular working hours (${shift.start_time} - ${shift.end_time})`,
-      };
+      const withinShift = isTimeRangeWithin(start, end, shift.start_time, shift.end_time);
+      if (!withinShift) {
+        return {
+          available: false,
+          layer: 'weekly_shift',
+          reason: `Requested time (${start} - ${end}) is outside therapist regular working hours (${shift.start_time} - ${shift.end_time})`,
+        };
+      }
+    } else {
+      // Default standard clinic working hours (08:00:00 to 19:00:00, Mon-Sun)
+      const withinDefaultShift = isTimeRangeWithin(start, end, '08:00:00', '19:00:00');
+      if (!withinDefaultShift) {
+        return {
+          available: false,
+          layer: 'weekly_shift',
+          reason: `Requested time (${start} - ${end}) is outside default clinic working hours (08:00:00 - 19:00:00)`,
+        };
+      }
     }
   }
 
