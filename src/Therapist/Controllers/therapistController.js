@@ -1,13 +1,14 @@
-const { pool } = require('../../config/db');
+const therapistService = require('../Services/therapistService');
+const { parseIntegerId, isValidUUID, getNormalizedParam } = require('../../Common/Utils/paramUtils');
 
 /**
  * Therapist View Controller
- * Handles Therapist daily queue, starting sessions, and core clinical progression engine.
+ * Handles Therapist daily queue, session lifecycle progression, emergency pause, shift handover, and availability tracking.
  */
 const therapistController = {
   /**
    * 1. GET /api/therapist/queue/:therapistId
-   * Fetches daily active/pending sessions assigned to the therapist.
+   * Fetches daily active/pending sessions assigned to the therapist with rich preparation metadata and dual contracts.
    */
   getTherapistQueue: async (req, res) => {
     const { therapistId } = req.params;
@@ -19,31 +20,17 @@ const therapistController = {
       });
     }
 
-    const queryText = `
-      SELECT 
-        s.id AS session_id,
-        s.patient_id,
-        patient_user.name AS patient_name,
-        patient_user.gender AS patient_gender,
-        tps.stage_type,
-        tps.status AS stage_status,
-        COALESCE(r.name, 'Unassigned') AS room_name,
-        TO_CHAR(s.scheduled_date, 'YYYY-MM-DD') AS scheduled_date,
-        s.scheduled_time::text AS scheduled_time,
-        s.status
-      FROM sessions s
-      JOIN patients p ON s.patient_id = p.user_id
-      JOIN users patient_user ON p.user_id = patient_user.id
-      LEFT JOIN rooms r ON s.room_id = r.id
-      JOIN therapy_plan_stages tps ON s.plan_stage_id = tps.id
-      WHERE s.therapist_id = $1 
-        AND s.status IN ('scheduled', 'in_progress')
-      ORDER BY s.scheduled_date ASC, s.scheduled_time ASC, tps.sequence_order ASC;
-    `;
+    if (!isValidUUID(therapistId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid therapist ID format. Must be a valid UUID.',
+      });
+    }
 
-    const result = await pool.query(queryText, [therapistId]);
+    const date = getNormalizedParam(req.query, 'date', 'scheduledDate', 'scheduled_date');
+    const queue = await therapistService.getQueue(therapistId, { date });
 
-    return res.status(200).json(result.rows);
+    return res.status(200).json(queue);
   },
 
   /**
@@ -52,88 +39,17 @@ const therapistController = {
    */
   startSession: async (req, res) => {
     const { sessionId } = req.params;
-    const parsedSessionId = parseInt(sessionId, 10);
+    const parsedSessionId = parseIntegerId(sessionId);
 
-    if (isNaN(parsedSessionId)) {
+    if (parsedSessionId === null) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid session ID provided.',
+        message: 'Invalid session ID provided. Must be an integer.',
       });
     }
 
-    const client = await pool.connect();
-
-    try {
-      await client.query('BEGIN');
-
-      // 1. Check if session exists and is scheduled
-      const sessionQuery = `
-        SELECT id, plan_stage_id, status 
-        FROM sessions 
-        WHERE id = $1
-        FOR UPDATE;
-      `;
-      const sessionRes = await client.query(sessionQuery, [parsedSessionId]);
-
-      if (sessionRes.rows.length === 0) {
-        await client.query('ROLLBACK');
-        return res.status(404).json({
-          success: false,
-          message: `Session with ID ${parsedSessionId} not found.`,
-        });
-      }
-
-      const currentSession = sessionRes.rows[0];
-
-      if (currentSession.status === 'in_progress') {
-        await client.query('ROLLBACK');
-        return res.status(200).json({
-          success: true,
-          message: 'Session is already in_progress',
-          session_id: parsedSessionId,
-          status: 'in_progress',
-        });
-      }
-
-      if (currentSession.status === 'completed') {
-        await client.query('ROLLBACK');
-        return res.status(400).json({
-          success: false,
-          message: 'Cannot start a session that is already completed.',
-        });
-      }
-
-      // 2. Update session to 'in_progress' and record actual_start_time
-      const updateSessionQuery = `
-        UPDATE sessions 
-        SET status = 'in_progress', actual_start_time = CURRENT_TIMESTAMP 
-        WHERE id = $1
-        RETURNING id, status, actual_start_time;
-      `;
-      await client.query(updateSessionQuery, [parsedSessionId]);
-
-      // 3. Update the parent therapy plan stage status to 'in_progress'
-      const updateStageQuery = `
-        UPDATE therapy_plan_stages 
-        SET status = 'in_progress' 
-        WHERE id = $1;
-      `;
-      await client.query(updateStageQuery, [currentSession.plan_stage_id]);
-
-      await client.query('COMMIT');
-
-      return res.status(200).json({
-        success: true,
-        message: 'Session marked in_progress',
-        session_id: parsedSessionId,
-        status: 'in_progress',
-      });
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
+    const result = await therapistService.startSession(parsedSessionId);
+    return res.status(result.statusCode).json(result.data);
   },
 
   /**
@@ -142,197 +58,252 @@ const therapistController = {
    */
   completeSession: async (req, res) => {
     const { sessionId } = req.params;
-    const parsedSessionId = parseInt(sessionId, 10);
+    const parsedSessionId = parseIntegerId(sessionId);
 
-    if (isNaN(parsedSessionId)) {
+    if (parsedSessionId === null) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid session ID provided.',
+        message: 'Invalid session ID provided. Must be an integer.',
       });
     }
 
-    const {
-      therapist_id,
-      dosage_given = '',
-      patient_response = 'normal',
-      vitals = {},
-      complication_notes = '',
-      has_complication = false,
-    } = req.body;
-
-    const normalizedResponse = patient_response.toLowerCase().trim();
-    if (!['normal', 'abnormal'].includes(normalizedResponse)) {
+    const therapistId = getNormalizedParam(req.body, 'therapistId', 'therapist_id', 'recordedBy', 'recorded_by');
+    if (therapistId && !isValidUUID(therapistId)) {
       return res.status(400).json({
         success: false,
-        message: "patient_response must be either 'normal' or 'abnormal'.",
+        message: 'Invalid therapist ID format. Must be a valid UUID.',
       });
     }
 
-    const isComplication =
-      normalizedResponse === 'abnormal' ||
-      has_complication === true ||
-      has_complication === 'true' ||
-      (typeof complication_notes === 'string' && complication_notes.trim().length > 0);
+    const dosageGiven = getNormalizedParam(req.body, 'dosageGiven', 'dosage_given') || '';
+    const patientResponse = getNormalizedParam(req.body, 'patientResponse', 'patient_response') || 'normal';
+    const vitals = getNormalizedParam(req.body, 'vitals') || {};
+    const complicationNotes = getNormalizedParam(req.body, 'complicationNotes', 'complication_notes') || '';
+    const hasComplication = getNormalizedParam(req.body, 'hasComplication', 'has_complication') || false;
 
-    const client = await pool.connect();
+    const result = await therapistService.completeSession(parsedSessionId, {
+      therapistId,
+      dosageGiven,
+      patientResponse,
+      vitals,
+      complicationNotes,
+      hasComplication,
+    });
 
-    try {
-      await client.query('BEGIN');
+    return res.status(result.statusCode).json(result.data);
+  },
 
-      // Step B Context Lookup: Fetch parent stage, plan, and treating doctor
-      const contextQuery = `
-        SELECT 
-          s.id AS session_id,
-          s.status AS session_status,
-          s.plan_stage_id,
-          s.therapist_id,
-          tps.plan_id,
-          tps.sequence_order,
-          tp.doctor_id
-        FROM sessions s
-        JOIN therapy_plan_stages tps ON s.plan_stage_id = tps.id
-        JOIN therapy_plans tp ON tps.plan_id = tp.id
-        WHERE s.id = $1
-        FOR UPDATE;
-      `;
-      const contextRes = await client.query(contextQuery, [parsedSessionId]);
+  /**
+   * 4. POST / PATCH /api/sessions/:sessionId/pause (Emergency Pause Endpoint)
+   * Immediately flags session, logs abnormal observation, triggers doctor alert, and keeps subsequent stages locked.
+   */
+  pauseSession: async (req, res) => {
+    const { sessionId } = req.params;
+    const parsedSessionId = parseIntegerId(sessionId);
 
-      if (contextRes.rows.length === 0) {
-        await client.query('ROLLBACK');
-        return res.status(404).json({
+    if (parsedSessionId === null) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid session ID provided. Must be an integer.',
+      });
+    }
+
+    const therapistId = getNormalizedParam(req.body, 'therapistId', 'therapist_id');
+    if (therapistId && !isValidUUID(therapistId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid therapist ID format. Must be a valid UUID.',
+      });
+    }
+
+    const reason =
+      getNormalizedParam(req.body, 'reason', 'complicationNotes', 'complication_notes', 'notes') ||
+      'Emergency session pause triggered by therapist';
+    const vitals = getNormalizedParam(req.body, 'vitals') || {};
+    const dosageGiven = getNormalizedParam(req.body, 'dosageGiven', 'dosage_given') || '';
+
+    const result = await therapistService.pauseSession(parsedSessionId, {
+      therapistId,
+      reason,
+      vitals,
+      dosageGiven,
+    });
+
+    return res.status(result.statusCode).json(result.data);
+  },
+
+  /**
+   * 5. POST /api/therapist/shift-handover or POST /api/therapist/handover or POST /api/sessions/:sessionId/handover
+   * Handles reassigning scheduled/pending session(s) from one therapist to another.
+   */
+  shiftHandover: async (req, res) => {
+    const targetTherapistId = getNormalizedParam(
+      req.body,
+      'targetTherapistId',
+      'target_therapist_id',
+      'toTherapistId',
+      'to_therapist_id'
+    );
+    const sourceTherapistId = getNormalizedParam(
+      req.body,
+      'sourceTherapistId',
+      'source_therapist_id',
+      'fromTherapistId',
+      'from_therapist_id'
+    );
+    let sessionIds = getNormalizedParam(req.body, 'sessionIds', 'session_ids');
+    const date = getNormalizedParam(req.body, 'date', 'scheduledDate', 'scheduled_date');
+    const notes = getNormalizedParam(req.body, 'notes', 'handoverNotes', 'handover_notes', 'reason');
+
+    if (req.params.sessionId) {
+      const parsed = parseIntegerId(req.params.sessionId);
+      if (parsed === null) {
+        return res.status(400).json({
           success: false,
-          message: `Session with ID ${parsedSessionId} not found or incomplete therapy plan linkage.`,
+          message: 'Invalid session ID provided. Must be an integer.',
         });
       }
-
-      const sessionContext = contextRes.rows[0];
-      const recordedBy = therapist_id || sessionContext.therapist_id || null;
-
-      // Step A: Insert record into session_observations
-      const observationQuery = `
-        INSERT INTO session_observations (
-          session_id,
-          dosage_given,
-          patient_response,
-          vitals,
-          complication_notes,
-          recorded_by
-        )
-        VALUES ($1, $2, $3, $4, $5, $6)
-        ON CONFLICT (session_id) 
-        DO UPDATE SET
-          dosage_given = EXCLUDED.dosage_given,
-          patient_response = EXCLUDED.patient_response,
-          vitals = EXCLUDED.vitals,
-          complication_notes = EXCLUDED.complication_notes,
-          recorded_by = EXCLUDED.recorded_by,
-          recorded_at = CURRENT_TIMESTAMP
-        RETURNING id;
-      `;
-
-      const obsRes = await client.query(observationQuery, [
-        parsedSessionId,
-        dosage_given,
-        normalizedResponse,
-        JSON.stringify(vitals || {}),
-        complication_notes || null,
-        recordedBy,
-      ]);
-
-      const observationId = obsRes.rows[0].id;
-
-      // Step C (Branch 1 - Complication / Abnormal Response)
-      if (isComplication) {
-        // 1. Update session status to completed and set actual_end_time
-        const updateSessionQuery = `
-          UPDATE sessions 
-          SET status = 'completed', actual_end_time = CURRENT_TIMESTAMP 
-          WHERE id = $1;
-        `;
-        await client.query(updateSessionQuery, [parsedSessionId]);
-
-        // 2. Insert alert into complication_alerts for treating doctor
-        const alertQuery = `
-          INSERT INTO complication_alerts (
-            session_observation_id,
-            doctor_id,
-            status
-          )
-          VALUES ($1, $2, 'pending')
-          RETURNING id;
-        `;
-        await client.query(alertQuery, [
-          observationId,
-          sessionContext.doctor_id,
-        ]);
-
-        // 3. DO NOT unlock next stage. Keep subsequent stages 'locked'.
-        await client.query('COMMIT');
-
-        return res.status(200).json({
-          status: 'FLAGGED',
-          stage_unlocked: false,
-          alert_generated: true,
-          message: 'Complication recorded. Doctor alerted and next stage progression paused.',
-        });
-      }
-
-      // Step D (Branch 2 - Normal Success Flow)
-      // 1. Update session status to completed and set actual_end_time
-      const updateSessionQuery = `
-        UPDATE sessions 
-        SET status = 'completed', actual_end_time = CURRENT_TIMESTAMP 
-        WHERE id = $1;
-      `;
-      await client.query(updateSessionQuery, [parsedSessionId]);
-
-      // 2. Update current therapy plan stage to 'complete'
-      const updateCurrentStageQuery = `
-        UPDATE therapy_plan_stages 
-        SET status = 'complete' 
-        WHERE id = $1;
-      `;
-      await client.query(updateCurrentStageQuery, [sessionContext.plan_stage_id]);
-
-      // 3. Query for the next sequential stage in the therapy plan
-      const nextStageQuery = `
-        SELECT id 
-        FROM therapy_plan_stages 
-        WHERE plan_id = $1 AND sequence_order = $2;
-      `;
-      const nextStageRes = await client.query(nextStageQuery, [
-        sessionContext.plan_id,
-        sessionContext.sequence_order + 1,
-      ]);
-
-      let nextStageUnlocked = false;
-
-      // 4. If next stage exists, unlock it
-      if (nextStageRes.rows.length > 0) {
-        const nextStageId = nextStageRes.rows[0].id;
-        const unlockStageQuery = `
-          UPDATE therapy_plan_stages 
-          SET status = 'unlocked' 
-          WHERE id = $1;
-        `;
-        await client.query(unlockStageQuery, [nextStageId]);
-        nextStageUnlocked = true;
-      }
-
-      await client.query('COMMIT');
-
-      return res.status(200).json({
-        status: 'COMPLETED',
-        stage_unlocked: true,
-        alert_generated: false,
-        message: 'Session completed successfully. Next sequential stage unlocked.',
-      });
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
+      sessionIds = [parsed];
+    } else if (Array.isArray(sessionIds)) {
+      sessionIds = sessionIds.map((id) => parseIntegerId(id)).filter((id) => id !== null);
     }
+
+    if (!targetTherapistId || !isValidUUID(targetTherapistId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid target therapist ID (UUID) is required for shift handover.',
+      });
+    }
+
+    if (sourceTherapistId && !isValidUUID(sourceTherapistId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid source therapist ID format. Must be a valid UUID.',
+      });
+    }
+
+    const result = await therapistService.shiftHandover({
+      sourceTherapistId,
+      targetTherapistId,
+      sessionIds,
+      date,
+      notes,
+    });
+
+    return res.status(result.statusCode).json(result.data);
+  },
+
+  /**
+   * 6. GET /api/therapist/availability/:therapistId
+   * Retrieves availability records for a therapist.
+   */
+  getTherapistAvailability: async (req, res) => {
+    const { therapistId } = req.params;
+
+    if (!therapistId || !isValidUUID(therapistId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid therapist ID (UUID) is required.',
+      });
+    }
+
+    const date = getNormalizedParam(req.query, 'date');
+    const startDate = getNormalizedParam(req.query, 'startDate', 'start_date');
+    const endDate = getNormalizedParam(req.query, 'endDate', 'end_date');
+
+    const availability = await therapistService.getAvailability(therapistId, {
+      date,
+      startDate,
+      endDate,
+    });
+
+    return res.status(200).json(availability);
+  },
+
+  /**
+   * 7. POST /api/therapist/availability
+   * Creates an availability record for a therapist.
+   */
+  createAvailability: async (req, res) => {
+    const therapistId =
+      getNormalizedParam(req.body, 'therapistId', 'therapist_id') || req.params.therapistId;
+    const date = getNormalizedParam(req.body, 'date');
+    const startTime = getNormalizedParam(req.body, 'startTime', 'start_time');
+    const endTime = getNormalizedParam(req.body, 'endTime', 'end_time');
+    const status = getNormalizedParam(req.body, 'status') || 'available';
+
+    if (!therapistId || !isValidUUID(therapistId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid therapist ID (UUID) is required.',
+      });
+    }
+
+    if (!date || !startTime || !endTime) {
+      return res.status(400).json({
+        success: false,
+        message: 'date, startTime, and endTime are required.',
+      });
+    }
+
+    const result = await therapistService.createAvailability({
+      therapistId,
+      date,
+      startTime,
+      endTime,
+      status,
+    });
+
+    return res.status(result.statusCode).json(result.data);
+  },
+
+  /**
+   * 8. PUT / PATCH /api/therapist/availability/:availabilityId
+   * Updates an existing availability record.
+   */
+  updateAvailability: async (req, res) => {
+    const { availabilityId } = req.params;
+    const parsedId = parseIntegerId(availabilityId);
+
+    if (parsedId === null) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid availability ID. Must be an integer.',
+      });
+    }
+
+    const date = getNormalizedParam(req.body, 'date');
+    const startTime = getNormalizedParam(req.body, 'startTime', 'start_time');
+    const endTime = getNormalizedParam(req.body, 'endTime', 'end_time');
+    const status = getNormalizedParam(req.body, 'status');
+
+    const result = await therapistService.updateAvailability(parsedId, {
+      date,
+      startTime,
+      endTime,
+      status,
+    });
+
+    return res.status(result.statusCode).json(result.data);
+  },
+
+  /**
+   * 9. DELETE /api/therapist/availability/:availabilityId
+   * Deletes an availability record.
+   */
+  deleteAvailability: async (req, res) => {
+    const { availabilityId } = req.params;
+    const parsedId = parseIntegerId(availabilityId);
+
+    if (parsedId === null) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid availability ID. Must be an integer.',
+      });
+    }
+
+    const result = await therapistService.deleteAvailability(parsedId);
+    return res.status(result.statusCode).json(result.data);
   },
 };
 
