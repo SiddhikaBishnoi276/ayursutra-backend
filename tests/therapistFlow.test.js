@@ -14,8 +14,8 @@ async function runTests() {
 
   console.log(`📡 Test server running on ${baseUrl}`);
 
-  let testClinicId, doctorUserId, therapistUserId, secondTherapistUserId, patientUserId, roomId, packageId, planId;
-  let stage1Id, stage2Id, stage3Id, session1Id, session2Id, session3Id, session4Id;
+  let testClinicId, soloClinicId, doctorUserId, therapistUserId, secondTherapistUserId, soloDoctorUserId, patientUserId, roomId, packageId, planId;
+  let stage1Id, stage2Id, stage3Id, session1Id, session2Id, session3Id, session4Id, soloSessionId;
   let createdAvailabilityId;
   const testRunId = Date.now().toString().slice(-6);
 
@@ -25,13 +25,21 @@ async function runTests() {
     // --------------------------------------------------------------------------
     console.log('\n🌱 Step 1: Seeding test data in database...');
 
-    // Clinic
+    // Clinic (Clinic Mode)
     const clinicRes = await pool.query(`
       INSERT INTO clinics (name, practitioner_mode, address, contact_phone)
       VALUES ($1, 'clinic', '123 Ayurveda Marg', $2)
       RETURNING id;
     `, [`AyurSutra Test Clinic ${testRunId}`, `+9199${testRunId}01`]);
     testClinicId = clinicRes.rows[0].id;
+
+    // Solo Practice Clinic (Solo Mode)
+    const soloClinicRes = await pool.query(`
+      INSERT INTO clinics (name, practitioner_mode, address, contact_phone)
+      VALUES ($1, 'solo', '456 Solo Marg', $2)
+      RETURNING id;
+    `, [`AyurSutra Solo Clinic ${testRunId}`, `+9199${testRunId}99`]);
+    soloClinicId = soloClinicRes.rows[0].id;
 
     // Doctor User
     const docRes = await pool.query(`
@@ -45,6 +53,14 @@ async function runTests() {
       INSERT INTO doctor_profiles (user_id, qualification, registration_number)
       VALUES ($1, 'BAMS, MD (Ayurveda)', $2);
     `, [doctorUserId, `AYUR-TEST-${testRunId}`]);
+
+    // Solo Practitioner User
+    const soloDocRes = await pool.query(`
+      INSERT INTO users (role, name, email, phone, password_hash, gender, clinic_id)
+      VALUES ('solo_practitioner', 'Dr. Suresh Solo', $1, $2, 'hash123', 'Male', $3)
+      RETURNING id;
+    `, [`suresh.solo.${testRunId}@ayursutra.com`, `+9199${testRunId}88`, soloClinicId]);
+    soloDoctorUserId = soloDocRes.rows[0].id;
 
     // Therapist User 1
     const therRes = await pool.query(`
@@ -93,13 +109,20 @@ async function runTests() {
     `, [testClinicId]);
     roomId = roomRes.rows[0].id;
 
-    // Therapy Package
+    // Therapy Package & Master Stages (with session_duration_minutes & instructions)
     const pkgRes = await pool.query(`
       INSERT INTO therapy_packages (clinic_id, name, therapy_type)
       VALUES ($1, 'Complete Virechana Protocol', 'Virechana')
       RETURNING id;
     `, [testClinicId]);
     packageId = pkgRes.rows[0].id;
+
+    const pkgStage1Res = await pool.query(`
+      INSERT INTO therapy_package_stages (package_id, stage_type, sequence_order, duration_days, session_duration_minutes, pre_instructions, post_instructions)
+      VALUES ($1, 'Poorvakarma', 1, 3, 90, 'Internal Snehapana with medicated ghee.', 'Rest in warm room for 30 minutes.')
+      RETURNING id;
+    `, [packageId]);
+    const pkgStage1Id = pkgStage1Res.rows[0].id;
 
     // Therapy Plan
     const planRes = await pool.query(`
@@ -112,10 +135,10 @@ async function runTests() {
     // Sequential Stages:
     // Stage 1: Poorvakarma (unlocked)
     const stg1 = await pool.query(`
-      INSERT INTO therapy_plan_stages (plan_id, stage_type, sequence_order, duration_days, status)
-      VALUES ($1, 'Poorvakarma', 1, 3, 'unlocked')
+      INSERT INTO therapy_plan_stages (plan_id, package_stage_id, stage_type, sequence_order, duration_days, status)
+      VALUES ($1, $2, 'Poorvakarma', 1, 3, 'unlocked')
       RETURNING id;
-    `, [planId]);
+    `, [planId, pkgStage1Id]);
     stage1Id = stg1.rows[0].id;
 
     // Stage 2: Pradhanakarma (locked)
@@ -137,40 +160,62 @@ async function runTests() {
     // Sessions:
     // Session 1 (Assigned to Therapist for Stage 1)
     const ses1 = await pool.query(`
-      INSERT INTO sessions (plan_stage_id, patient_id, therapist_id, room_id, scheduled_date, scheduled_time, status)
-      VALUES ($1, $2, $3, $4, CURRENT_DATE, '10:00:00', 'scheduled')
+      INSERT INTO sessions (plan_stage_id, patient_id, therapist_id, room_id, scheduled_date, scheduled_time, scheduled_start_time, scheduled_end_time, status)
+      VALUES ($1, $2, $3, $4, CURRENT_DATE, '10:00:00', '10:00:00', '11:30:00', 'scheduled')
       RETURNING id;
     `, [stage1Id, patientUserId, therapistUserId, roomId]);
     session1Id = ses1.rows[0].id;
 
     // Session 2 (Assigned to Therapist for Stage 2)
     const ses2 = await pool.query(`
-      INSERT INTO sessions (plan_stage_id, patient_id, therapist_id, room_id, scheduled_date, scheduled_time, status)
-      VALUES ($1, $2, $3, $4, CURRENT_DATE, '14:00:00', 'scheduled')
+      INSERT INTO sessions (plan_stage_id, patient_id, therapist_id, room_id, scheduled_date, scheduled_time, scheduled_start_time, scheduled_end_time, status)
+      VALUES ($1, $2, $3, $4, CURRENT_DATE, '14:00:00', '14:00:00', '15:30:00', 'scheduled')
       RETURNING id;
     `, [stage2Id, patientUserId, therapistUserId, roomId]);
     session2Id = ses2.rows[0].id;
 
     // Session 3 (for Emergency Pause testing)
     const ses3 = await pool.query(`
-      INSERT INTO sessions (plan_stage_id, patient_id, therapist_id, room_id, scheduled_date, scheduled_time, status)
-      VALUES ($1, $2, $3, $4, CURRENT_DATE, '16:00:00', 'in_progress')
+      INSERT INTO sessions (plan_stage_id, patient_id, therapist_id, room_id, scheduled_date, scheduled_time, scheduled_start_time, scheduled_end_time, status)
+      VALUES ($1, $2, $3, $4, CURRENT_DATE, '16:00:00', '16:00:00', '17:30:00', 'in_progress')
       RETURNING id;
     `, [stage1Id, patientUserId, therapistUserId, roomId]);
     session3Id = ses3.rows[0].id;
 
     // Session 4 (for Handover testing)
     const ses4 = await pool.query(`
-      INSERT INTO sessions (plan_stage_id, patient_id, therapist_id, room_id, scheduled_date, scheduled_time, status)
-      VALUES ($1, $2, $3, $4, CURRENT_DATE, '17:30:00', 'scheduled')
+      INSERT INTO sessions (plan_stage_id, patient_id, therapist_id, room_id, scheduled_date, scheduled_time, scheduled_start_time, scheduled_end_time, status)
+      VALUES ($1, $2, $3, $4, CURRENT_DATE, '17:30:00', '17:30:00', '19:00:00', 'scheduled')
       RETURNING id;
     `, [stage1Id, patientUserId, therapistUserId, roomId]);
     session4Id = ses4.rows[0].id;
 
+    // Solo Session (in Solo Clinic Mode)
+    const soloPlanRes = await pool.query(`
+      INSERT INTO therapy_plans (patient_id, doctor_id, status, start_date)
+      VALUES ($1, $2, 'active', CURRENT_DATE)
+      RETURNING id;
+    `, [patientUserId, soloDoctorUserId]);
+    const soloPlanId = soloPlanRes.rows[0].id;
+
+    const soloStgRes = await pool.query(`
+      INSERT INTO therapy_plan_stages (plan_id, stage_type, sequence_order, duration_days, status)
+      VALUES ($1, 'Poorvakarma', 1, 3, 'unlocked')
+      RETURNING id;
+    `, [soloPlanId]);
+    const soloStageId = soloStgRes.rows[0].id;
+
+    const soloSesRes = await pool.query(`
+      INSERT INTO sessions (plan_stage_id, patient_id, therapist_id, room_id, scheduled_date, scheduled_time, scheduled_start_time, scheduled_end_time, status)
+      VALUES ($1, $2, NULL, NULL, CURRENT_DATE, '08:00:00', '08:00:00', '09:00:00', 'scheduled')
+      RETURNING id;
+    `, [soloStageId, patientUserId]);
+    soloSessionId = soloSesRes.rows[0].id;
+
     console.log('✅ Test fixtures seeded successfully.');
 
     // --------------------------------------------------------------------------
-    // 2. TEST ENDPOINT 1: GET /api/therapist/queue/:therapistId (Rich Enriched Response)
+    // 2. TEST ENDPOINT 1: GET /api/therapist/queue/:therapistId (Rich Enriched Response & Joined Instructions)
     // --------------------------------------------------------------------------
     console.log('\n🔍 Step 2: Testing GET /api/therapist/queue/:therapistId (Rich Enriched Queue)...');
     const queueRes = await fetch(`${baseUrl}/api/therapist/queue/${therapistUserId}`);
@@ -204,31 +249,83 @@ async function runTests() {
     assert.strictEqual(firstItem.therapist_id, therapistUserId);
     assert.strictEqual(firstItem.therapistName, 'Ramesh Kumar');
 
+    // Dynamic end time & duration
+    assert.strictEqual(firstItem.scheduledEndTime, '11:30:00');
+    assert.strictEqual(firstItem.scheduled_end_time, '11:30:00');
+    assert.strictEqual(firstItem.durationMinutes, 90);
+
+    // Joined instructions from therapy_package_stages
+    assert.strictEqual(firstItem.preInstructions, 'Internal Snehapana with medicated ghee.');
+    assert.strictEqual(firstItem.pre_instructions, 'Internal Snehapana with medicated ghee.');
+    assert.strictEqual(firstItem.postInstructions, 'Rest in warm room for 30 minutes.');
+
     // Preparation metadata checks
     assert(Array.isArray(firstItem.materials), 'materials should be an array');
     assert(firstItem.materials.length > 0, 'materials should have items');
     assert(firstItem.materials[0].name !== undefined);
     assert(firstItem.materials[0].quantityRequired !== undefined);
     assert(firstItem.materials[0].inStock !== undefined);
-    assert.strictEqual(typeof firstItem.preInstructions, 'string');
-    assert.strictEqual(typeof firstItem.pre_instructions, 'string');
-    console.log('✅ Endpoint 1 (Rich Queue Fetch with Dual Contracts & Materials) passed.');
+    console.log('✅ Endpoint 1 (Rich Queue Fetch with Joined Instructions & Dynamic End Time) passed.');
 
     // --------------------------------------------------------------------------
-    // 3. TEST SAFE VALIDATION: Invalid IDs rejection
+    // 3. TEST SOLO PRACTITIONER QUEUE
     // --------------------------------------------------------------------------
-    console.log('\n🛡️ Step 3: Testing Safe Validation & Error Handling on Malformed IDs...');
+    console.log('\n🧑‍⚕️ Step 3: Testing Solo Practitioner Queue Integration...');
+    const soloQueueRes = await fetch(`${baseUrl}/api/therapist/queue/${soloDoctorUserId}`);
+    assert.strictEqual(soloQueueRes.status, 200);
+    const soloQueueData = await soloQueueRes.json();
+    assert(Array.isArray(soloQueueData));
+    assert.strictEqual(soloQueueData.length, 1);
+    assert.strictEqual(soloQueueData[0].session_id, soloSessionId);
+    console.log('✅ Step 3 (Solo Practitioner Queue Integration) passed.');
+
+    // --------------------------------------------------------------------------
+    // 4. TEST WEEKLY SHIFTS RECURRING SCHEDULE (POST & GET /api/therapist/shifts)
+    // --------------------------------------------------------------------------
+    console.log('\n⏰ Step 4: Testing Weekly Recurring Shifts (POST & GET /api/therapist/shifts)...');
+    const shiftsPayload = [
+      { dayOfWeek: 1, startTime: '09:00:00', endTime: '18:00:00', isWorking: true },
+      { dayOfWeek: 2, startTime: '09:00:00', endTime: '18:00:00', isWorking: true },
+      { dayOfWeek: 6, startTime: '09:00:00', endTime: '14:00:00', isWorking: true },
+      { dayOfWeek: 0, startTime: '09:00:00', endTime: '18:00:00', isWorking: false },
+    ];
+
+    const saveShiftsRes = await fetch(`${baseUrl}/api/therapist/shifts/${therapistUserId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(shiftsPayload),
+    });
+    assert.strictEqual(saveShiftsRes.status, 200);
+    const saveShiftsData = await saveShiftsRes.json();
+    assert.strictEqual(saveShiftsData.success, true);
+    assert.strictEqual(saveShiftsData.shifts.length, 4);
+
+    const getShiftsRes = await fetch(`${baseUrl}/api/therapist/shifts/${therapistUserId}`);
+    assert.strictEqual(getShiftsRes.status, 200);
+    const getShiftsData = await getShiftsRes.json();
+    assert(Array.isArray(getShiftsData));
+    assert.strictEqual(getShiftsData.length, 4);
+    assert.strictEqual(getShiftsData[0].dayOfWeek, 0);
+    assert.strictEqual(getShiftsData[0].isWorking, false);
+    assert.strictEqual(getShiftsData[1].dayOfWeek, 1);
+    assert.strictEqual(getShiftsData[1].isWorking, true);
+    console.log('✅ Step 4 (Weekly Recurring Shifts Model) passed.');
+
+    // --------------------------------------------------------------------------
+    // 5. TEST SAFE VALIDATION: Invalid IDs rejection
+    // --------------------------------------------------------------------------
+    console.log('\n🛡️ Step 5: Testing Safe Validation & Error Handling on Malformed IDs...');
     const invalidQueueRes = await fetch(`${baseUrl}/api/therapist/queue/not-a-valid-uuid`);
     assert.strictEqual(invalidQueueRes.status, 400, 'Expected 400 Bad Request for malformed UUID');
 
     const invalidSessionStartRes = await fetch(`${baseUrl}/api/sessions/invalid-id/start`, { method: 'PATCH' });
     assert.strictEqual(invalidSessionStartRes.status, 400, 'Expected 400 Bad Request for non-integer session ID');
-    console.log('✅ Step 3 (Safe Parameter Validation) passed.');
+    console.log('✅ Step 5 (Safe Parameter Validation) passed.');
 
     // --------------------------------------------------------------------------
-    // 4. TEST ENDPOINT 2: PATCH /api/sessions/:sessionId/start (Dual Contracts)
+    // 6. TEST ENDPOINT 2: PATCH /api/sessions/:sessionId/start (Dual Contracts)
     // --------------------------------------------------------------------------
-    console.log('\n🚀 Step 4: Testing PATCH /api/sessions/:sessionId/start...');
+    console.log('\n🚀 Step 6: Testing PATCH /api/sessions/:sessionId/start...');
     const startRes = await fetch(`${baseUrl}/api/sessions/${session1Id}/start`, {
       method: 'PATCH',
     });
@@ -249,12 +346,12 @@ async function runTests() {
 
     const dbStageAfterStart = await pool.query('SELECT status FROM therapy_plan_stages WHERE id = $1', [stage1Id]);
     assert.strictEqual(dbStageAfterStart.rows[0].status, 'in_progress', 'Parent stage should be marked in_progress');
-    console.log('✅ Endpoint 2 (Start session & stage update) passed.');
+    console.log('✅ Step 6 (Start session & stage update) passed.');
 
     // --------------------------------------------------------------------------
-    // 5. TEST ENDPOINT 3: POST /api/sessions/:sessionId/complete (Flexible camelCase payload & Normal Flow)
+    // 7. TEST ENDPOINT 3: POST /api/sessions/:sessionId/complete (Flexible camelCase payload & Normal Flow)
     // --------------------------------------------------------------------------
-    console.log('\n🏁 Step 5: Testing POST /api/sessions/:sessionId/complete (Flexible camelCase Payload)...');
+    console.log('\n🏁 Step 7: Testing POST /api/sessions/:sessionId/complete (Flexible camelCase Payload)...');
     const completeRes = await fetch(`${baseUrl}/api/sessions/${session1Id}/complete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -294,12 +391,12 @@ async function runTests() {
     assert.strictEqual(dbObs.rows[0].dosage_given, '50ml Medicated Ghee');
     assert.strictEqual(dbObs.rows[0].patient_response, 'normal');
     assert.strictEqual(dbObs.rows[0].vitals.spo2, '99%');
-    console.log('✅ Endpoint 3 Normal Progression Flow (camelCase normalization & DB state) passed.');
+    console.log('✅ Step 7 (Normal Progression Flow & DB state) passed.');
 
     // --------------------------------------------------------------------------
-    // 6. TEST ENDPOINT 3: POST /api/sessions/:sessionId/complete (Complication Flow)
+    // 8. TEST ENDPOINT 3: POST /api/sessions/:sessionId/complete (Complication Flow)
     // --------------------------------------------------------------------------
-    console.log('\n⚠️ Step 6: Testing POST /api/sessions/:sessionId/complete (Complication Flow)...');
+    console.log('\n⚠️ Step 8: Testing POST /api/sessions/:sessionId/complete (Complication Flow)...');
     
     // Start Session 2 first
     await fetch(`${baseUrl}/api/sessions/${session2Id}/start`, { method: 'PATCH' });
@@ -336,12 +433,12 @@ async function runTests() {
 
     const dbStage3 = await pool.query('SELECT status FROM therapy_plan_stages WHERE id = $1', [stage3Id]);
     assert.strictEqual(dbStage3.rows[0].status, 'locked', 'Stage 3 must remain locked');
-    console.log('✅ Endpoint 3 Complication Flow (Doctor alerted, Next stage kept locked) passed.');
+    console.log('✅ Step 8 (Complication Flow & Doctor Alert) passed.');
 
     // --------------------------------------------------------------------------
-    // 7. TEST OPERATIONAL ENDPOINT: Emergency Pause (POST /api/sessions/:sessionId/pause)
+    // 9. TEST OPERATIONAL ENDPOINT: Emergency Pause (POST /api/sessions/:sessionId/pause)
     // --------------------------------------------------------------------------
-    console.log('\n🛑 Step 7: Testing Emergency Pause (POST /api/sessions/:sessionId/pause)...');
+    console.log('\n🛑 Step 9: Testing Emergency Pause (POST /api/sessions/:sessionId/pause)...');
     const pauseRes = await fetch(`${baseUrl}/api/sessions/${session3Id}/pause`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -365,12 +462,12 @@ async function runTests() {
     assert.strictEqual(pauseObs.rows.length, 1);
     assert.strictEqual(pauseObs.rows[0].patient_response, 'abnormal');
     assert(pauseObs.rows[0].complication_notes.includes('sudden dizziness'));
-    console.log('✅ Operational Endpoint 1 (Emergency Pause & Doctor Alert) passed.');
+    console.log('✅ Step 9 (Emergency Pause & Doctor Alert) passed.');
 
     // --------------------------------------------------------------------------
-    // 8. TEST OPERATIONAL ENDPOINT: Shift Handover (POST /api/therapist/shift-handover)
+    // 10. TEST OPERATIONAL ENDPOINT: Shift Handover (POST /api/therapist/shift-handover)
     // --------------------------------------------------------------------------
-    console.log('\n🔄 Step 8: Testing Shift Handover (POST /api/therapist/shift-handover)...');
+    console.log('\n🔄 Step 10: Testing Shift Handover (POST /api/therapist/shift-handover)...');
     const handoverRes = await fetch(`${baseUrl}/api/therapist/shift-handover`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -391,12 +488,12 @@ async function runTests() {
     // Verify DB update
     const dbSession4 = await pool.query('SELECT therapist_id FROM sessions WHERE id = $1', [session4Id]);
     assert.strictEqual(dbSession4.rows[0].therapist_id, secondTherapistUserId, 'Session 4 should now belong to second therapist');
-    console.log('✅ Operational Endpoint 2 (Shift Handover & Reassignment) passed.');
+    console.log('✅ Step 10 (Shift Handover & Reassignment) passed.');
 
     // --------------------------------------------------------------------------
-    // 9. TEST OPERATIONAL ENDPOINT: Availability Tracking (POST & GET /api/therapist/availability)
+    // 11. TEST OPERATIONAL ENDPOINT: Availability Tracking (POST & GET /api/therapist/availability)
     // --------------------------------------------------------------------------
-    console.log('\n📅 Step 9: Testing Availability Tracking (POST, GET, PATCH, DELETE /api/therapist/availability)...');
+    console.log('\n📅 Step 11: Testing Availability Tracking (POST, GET, PATCH, DELETE /api/therapist/availability)...');
     
     // Create Availability
     const createAvailRes = await fetch(`${baseUrl}/api/therapist/availability`, {
@@ -449,19 +546,20 @@ async function runTests() {
     const getAvailAfterDelData = await getAvailAfterDel.json();
     assert.strictEqual(getAvailAfterDelData.length, 0);
 
-    console.log('✅ Operational Endpoint 3 (Availability CRUD Lifecycle) passed.');
+    console.log('✅ Step 11 (Availability CRUD Lifecycle) passed.');
 
     console.log('\n🎉 ALL UPGRADED THERAPIST VIEW & OPERATIONAL ENDPOINTS TESTS PASSED PERFECTLY!\n');
   } finally {
     // Clean up test data
     console.log('🧹 Cleaning up test fixtures...');
     try {
-      if (doctorUserId || therapistUserId || secondTherapistUserId || patientUserId) {
-        const userIds = [doctorUserId, therapistUserId, secondTherapistUserId, patientUserId].filter(Boolean);
+      if (doctorUserId || therapistUserId || secondTherapistUserId || soloDoctorUserId || patientUserId) {
+        const userIds = [doctorUserId, therapistUserId, secondTherapistUserId, soloDoctorUserId, patientUserId].filter(Boolean);
         await pool.query('DELETE FROM users WHERE id = ANY($1)', [userIds]);
       }
-      if (testClinicId) {
-        await pool.query('DELETE FROM clinics WHERE id = $1', [testClinicId]);
+      if (testClinicId || soloClinicId) {
+        const clinicIds = [testClinicId, soloClinicId].filter(Boolean);
+        await pool.query('DELETE FROM clinics WHERE id = ANY($1)', [clinicIds]);
       }
     } catch (cleanupErr) {
       console.warn('Cleanup warning:', cleanupErr.message);

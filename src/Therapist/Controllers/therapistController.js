@@ -3,12 +3,12 @@ const { parseIntegerId, isValidUUID, getNormalizedParam } = require('../../Commo
 
 /**
  * Therapist View Controller
- * Handles Therapist daily queue, session lifecycle progression, emergency pause, shift handover, and availability tracking.
+ * Handles Therapist daily queue, session lifecycle progression, emergency pause, shift handover, weekly shifts, and availability tracking.
  */
 const therapistController = {
   /**
    * 1. GET /api/therapist/queue/:therapistId
-   * Fetches daily active/pending sessions assigned to the therapist with rich preparation metadata and dual contracts.
+   * Fetches daily active/pending sessions assigned to the therapist with rich preparation metadata, dynamic end times, and dual contracts.
    */
   getTherapistQueue: async (req, res) => {
     const { therapistId } = req.params;
@@ -194,7 +194,49 @@ const therapistController = {
   },
 
   /**
-   * 6. GET /api/therapist/availability/:therapistId
+   * 6. GET /api/therapist/shifts/:therapistId or /api/therapist/weekly-shifts/:therapistId
+   * Retrieves recurring weekly shift schedule for a therapist.
+   */
+  getWeeklyShifts: async (req, res) => {
+    const { therapistId } = req.params;
+
+    if (!therapistId || !isValidUUID(therapistId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid therapist ID (UUID) is required.',
+      });
+    }
+
+    const shifts = await therapistService.getWeeklyShifts(therapistId);
+    return res.status(200).json(shifts);
+  },
+
+  /**
+   * 7. POST /api/therapist/shifts or PUT /api/therapist/shifts/:therapistId
+   * Saves or bulk updates recurring weekly shifts.
+   */
+  saveWeeklyShifts: async (req, res) => {
+    const therapistId =
+      req.params.therapistId ||
+      getNormalizedParam(req.body, 'therapistId', 'therapist_id');
+
+    if (!therapistId || !isValidUUID(therapistId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid therapist ID (UUID) is required.',
+      });
+    }
+
+    const shifts = Array.isArray(req.body)
+      ? req.body
+      : getNormalizedParam(req.body, 'shifts') || [req.body];
+
+    const result = await therapistService.saveWeeklyShifts(therapistId, shifts);
+    return res.status(result.statusCode).json(result.data);
+  },
+
+  /**
+   * 8. GET /api/therapist/availability/:therapistId
    * Retrieves availability records for a therapist.
    */
   getTherapistAvailability: async (req, res) => {
@@ -221,7 +263,7 @@ const therapistController = {
   },
 
   /**
-   * 7. POST /api/therapist/availability
+   * 9. POST /api/therapist/availability
    * Creates an availability record for a therapist.
    */
   createAvailability: async (req, res) => {
@@ -231,6 +273,8 @@ const therapistController = {
     const startTime = getNormalizedParam(req.body, 'startTime', 'start_time');
     const endTime = getNormalizedParam(req.body, 'endTime', 'end_time');
     const status = getNormalizedParam(req.body, 'status') || 'available';
+    const isAvailable = getNormalizedParam(req.body, 'isAvailable', 'is_available');
+    const reason = getNormalizedParam(req.body, 'reason');
 
     if (!therapistId || !isValidUUID(therapistId)) {
       return res.status(400).json({
@@ -239,10 +283,10 @@ const therapistController = {
       });
     }
 
-    if (!date || !startTime || !endTime) {
+    if (!date) {
       return res.status(400).json({
         success: false,
-        message: 'date, startTime, and endTime are required.',
+        message: 'date is required.',
       });
     }
 
@@ -252,13 +296,15 @@ const therapistController = {
       startTime,
       endTime,
       status,
+      isAvailable,
+      reason,
     });
 
     return res.status(result.statusCode).json(result.data);
   },
 
   /**
-   * 8. PUT / PATCH /api/therapist/availability/:availabilityId
+   * 10. PUT / PATCH /api/therapist/availability/:availabilityId
    * Updates an existing availability record.
    */
   updateAvailability: async (req, res) => {
@@ -276,19 +322,23 @@ const therapistController = {
     const startTime = getNormalizedParam(req.body, 'startTime', 'start_time');
     const endTime = getNormalizedParam(req.body, 'endTime', 'end_time');
     const status = getNormalizedParam(req.body, 'status');
+    const isAvailable = getNormalizedParam(req.body, 'isAvailable', 'is_available');
+    const reason = getNormalizedParam(req.body, 'reason');
 
     const result = await therapistService.updateAvailability(parsedId, {
       date,
       startTime,
       endTime,
       status,
+      isAvailable,
+      reason,
     });
 
     return res.status(result.statusCode).json(result.data);
   },
 
   /**
-   * 9. DELETE /api/therapist/availability/:availabilityId
+   * 11. DELETE /api/therapist/availability/:availabilityId
    * Deletes an availability record.
    */
   deleteAvailability: async (req, res) => {

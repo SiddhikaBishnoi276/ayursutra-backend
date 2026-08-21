@@ -6,7 +6,7 @@ const asyncHandler = require('../../Common/Middleware/asyncHandler');
 /**
  * @route   GET /api/therapist/queue/:therapistId
  * @desc    Fetch daily active/pending sessions assigned to the therapist with rich prep metadata
- * @access  Protected / Therapist
+ * @access  Protected / Therapist / Solo Practitioner
  */
 router.get('/queue/:therapistId', asyncHandler(therapistController.getTherapistQueue));
 
@@ -19,8 +19,25 @@ router.post('/shift-handover', asyncHandler(therapistController.shiftHandover));
 router.post('/handover', asyncHandler(therapistController.shiftHandover));
 
 /**
+ * @route   GET /api/therapist/shifts/:therapistId or /weekly-shifts/:therapistId
+ * @desc    Get therapist recurring weekly shift schedule
+ * @access  Protected / Therapist / Doctor / Clinic Admin
+ */
+router.get('/shifts/:therapistId', asyncHandler(therapistController.getWeeklyShifts));
+router.get('/weekly-shifts/:therapistId', asyncHandler(therapistController.getWeeklyShifts));
+
+/**
+ * @route   POST /api/therapist/shifts or /weekly-shifts or PUT /shifts/:therapistId
+ * @desc    Save or bulk update therapist recurring weekly shifts
+ * @access  Protected / Therapist / Clinic Admin
+ */
+router.post('/shifts', asyncHandler(therapistController.saveWeeklyShifts));
+router.post('/weekly-shifts', asyncHandler(therapistController.saveWeeklyShifts));
+router.put('/shifts/:therapistId', asyncHandler(therapistController.saveWeeklyShifts));
+
+/**
  * @route   GET /api/therapist/availability/:therapistId
- * @desc    Get therapist working / leave schedule
+ * @desc    Get therapist working / leave schedule (date-specific exceptions)
  * @access  Protected / Therapist / Doctor / Clinic Admin
  */
 router.get('/availability/:therapistId', asyncHandler(therapistController.getTherapistAvailability));
