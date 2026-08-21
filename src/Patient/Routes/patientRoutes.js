@@ -17,4 +17,11 @@ router.get('/dashboard/:patientId', asyncHandler(patientController.getPatientDas
  */
 router.post('/feedback', asyncHandler(patientController.submitFeedback));
 
+/**
+ * @route   GET /api/patient/feedback/:patientId
+ * @desc    Get patient past feedback submissions
+ * @access  Protected / Patient
+ */
+router.get('/feedback/:patientId', asyncHandler(patientController.getPatientFeedback));
+
 module.exports = router;

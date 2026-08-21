@@ -520,6 +520,45 @@ const patientService = {
       submitted_at: createdFeedback.submitted_at,
     };
   },
+
+  /**
+   * 3. Get feedback submitted by a patient
+   */
+  getFeedbackByPatient: async (patientId) => {
+    const query = `
+      SELECT pf.id, pf.session_id, pf.patient_id, pf.pain_scale, pf.sleep_quality, pf.energy_level,
+             pf.side_effects, pf.submitted_at,
+             s.scheduled_date, s.scheduled_time, s.scheduled_end_time,
+             tps.stage_type AS stage_name, tps.stage_type
+      FROM patient_feedback pf
+      JOIN sessions s ON pf.session_id = s.id
+      JOIN therapy_plan_stages tps ON s.plan_stage_id = tps.id
+      WHERE pf.patient_id = $1
+      ORDER BY pf.submitted_at DESC;
+    `;
+    const result = await pool.query(query, [patientId]);
+    return result.rows.map((row) => ({
+      id: String(row.id),
+      sessionId: row.session_id,
+      session_id: row.session_id,
+      patientId: row.patient_id,
+      patient_id: row.patient_id,
+      stageName: row.stage_name || row.stage_type || 'Therapy Stage',
+      stage_name: row.stage_name || row.stage_type || 'Therapy Stage',
+      rating: Math.round(((row.sleep_quality + row.energy_level) / 4)),
+      symptomImprovementScore: Math.max(1, 10 - (row.pain_scale || 3)),
+      overallExperience: row.side_effects || 'Good recovery',
+      comments: row.side_effects || '',
+      painScale: row.pain_scale,
+      pain_scale: row.pain_scale,
+      sleepQuality: row.sleep_quality,
+      sleep_quality: row.sleep_quality,
+      energyLevel: row.energy_level,
+      energy_level: row.energy_level,
+      submittedAt: row.submitted_at,
+      submitted_at: row.submitted_at,
+    }));
+  },
 };
 
 module.exports = patientService;

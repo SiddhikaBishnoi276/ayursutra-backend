@@ -142,6 +142,23 @@ const patientController = {
 
     return res.status(201).json(result);
   },
+
+  /**
+   * 3. GET /api/patient/feedback/:patientId
+   * Retrieves past feedback submissions by patient
+   */
+  getPatientFeedback: async (req, res) => {
+    const { patientId } = req.params;
+    if (!patientId || !isValidUUID(patientId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'A valid patient UUID is required.',
+      });
+    }
+
+    const feedbacks = await patientService.getFeedbackByPatient(patientId);
+    return res.status(200).json(feedbacks);
+  },
 };
 
 module.exports = patientController;

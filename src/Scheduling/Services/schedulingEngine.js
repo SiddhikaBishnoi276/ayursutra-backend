@@ -152,7 +152,7 @@ async function generateTherapyPlan(doctorUser, patientId, packageId, options = {
     const planResult = await client.query(
       `INSERT INTO therapy_plans (patient_id, package_id, doctor_id, status, start_date)
        VALUES ($1, $2, $3, 'active', $4) RETURNING id`,
-      [patientId, packageId, doctorUser.id, formatDate(startDate)]
+      [patientId, pkg.id, doctorUser.id, formatDate(startDate)]
     );
     const planId = planResult.rows[0].id;
 
@@ -188,22 +188,30 @@ async function generateTherapyPlan(doctorUser, patientId, packageId, options = {
         dateAttempts++;
         const sessionDateStr = formatDate(sessionDate);
 
+        // Batch prefetch all active bookings for this date in 1 query
+        const existingBookingsRes = await client.query(
+          `SELECT therapist_id, room_id, scheduled_start_time, scheduled_end_time, scheduled_time
+           FROM sessions
+           WHERE scheduled_date = $1 AND status != 'cancelled'`,
+          [sessionDateStr]
+        );
+        const dayBookings = existingBookingsRes.rows;
+
         let bookedSlot = null;
 
-        // Try candidate slots and therapists
+        // Try candidate slots and therapists in-memory with batch prefetch
         slotLoop: for (const slotStart of candidateSlots) {
           const slotEnd = addMinutesToTime(slotStart, stageDurationMinutes);
 
           for (const therapistCandidate of clinicTherapists) {
-            const therapistCheck = await checkTherapistAvailability(
-              client,
-              therapistCandidate.id,
-              sessionDateStr,
-              slotStart,
-              slotEnd
-            );
+            const therapistConflict = dayBookings.some((b) => {
+              if (b.therapist_id !== therapistCandidate.id) return false;
+              const bStart = b.scheduled_start_time || b.scheduled_time;
+              const bEnd = b.scheduled_end_time || addMinutesToTime(bStart, 60);
+              return (bStart < slotEnd) && (bEnd > slotStart);
+            });
 
-            if (!therapistCheck.available) {
+            if (therapistConflict) {
               continue;
             }
 
@@ -212,15 +220,14 @@ async function generateTherapyPlan(doctorUser, patientId, packageId, options = {
               const idx = (roomCursor + r) % rooms.length;
               const candidateRoomId = rooms[idx].id;
 
-              const roomCheck = await checkRoomAvailability(
-                client,
-                candidateRoomId,
-                sessionDateStr,
-                slotStart,
-                slotEnd
-              );
+              const roomConflict = dayBookings.some((b) => {
+                if (b.room_id !== candidateRoomId) return false;
+                const bStart = b.scheduled_start_time || b.scheduled_time;
+                const bEnd = b.scheduled_end_time || addMinutesToTime(bStart, 60);
+                return (bStart < slotEnd) && (bEnd > slotStart);
+              });
 
-              if (roomCheck.available) {
+              if (!roomConflict) {
                 roomCursor = idx + 1;
                 bookedSlot = {
                   therapist: therapistCandidate,
@@ -236,7 +243,7 @@ async function generateTherapyPlan(doctorUser, patientId, packageId, options = {
         }
 
         if (!bookedSlot) {
-          // Advance past non-working day or fully occupied day to next available date
+          // Advance to next available date
           sessionDate = addDays(sessionDate, 1);
           continue;
         }

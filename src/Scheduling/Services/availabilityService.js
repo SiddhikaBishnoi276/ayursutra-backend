@@ -70,7 +70,13 @@ async function checkTherapistAvailability(dbClient, therapistId, dateStr, startT
 
     const shift = shiftRes.rows[0];
 
-    if (!shift || !shift.is_working) {
+    // If explicit shift row exists, check is_working and shift times
+    // If no row exists yet, fallback to default clinic operating hours (Mon-Sat 08:00 - 18:00)
+    const isWorking = shift ? shift.is_working : (dayOfWeek !== 0);
+    const shiftStart = shift?.start_time || '08:00:00';
+    const shiftEnd = shift?.end_time || '18:00:00';
+
+    if (!isWorking) {
       return {
         available: false,
         layer: 'weekly_shift',
@@ -78,12 +84,12 @@ async function checkTherapistAvailability(dbClient, therapistId, dateStr, startT
       };
     }
 
-    const withinShift = isTimeRangeWithin(start, end, shift.start_time, shift.end_time);
+    const withinShift = isTimeRangeWithin(start, end, shiftStart, shiftEnd);
     if (!withinShift) {
       return {
         available: false,
         layer: 'weekly_shift',
-        reason: `Requested time (${start} - ${end}) is outside therapist regular working hours (${shift.start_time} - ${shift.end_time})`,
+        reason: `Requested time (${start} - ${end}) is outside therapist working hours (${shiftStart} - ${shiftEnd})`,
       };
     }
   }
@@ -91,13 +97,16 @@ async function checkTherapistAvailability(dbClient, therapistId, dateStr, startT
   // 3. Layer 3: Overlap Conflict Check in sessions table
   // Overlap Formula: (new_start < existing_end) AND (new_end > existing_start)
   const conflictRes = await runner.query(
-    `SELECT id, scheduled_start_time, scheduled_end_time, status
+    `SELECT id, scheduled_start_time, scheduled_end_time, scheduled_time, status
      FROM sessions
      WHERE therapist_id = $1
        AND scheduled_date = $2
        AND status != 'cancelled'
-       AND scheduled_start_time < $4::TIME
-       AND scheduled_end_time > $3::TIME
+       AND (
+         (COALESCE(scheduled_start_time, scheduled_time) < $4::TIME
+          AND COALESCE(scheduled_end_time, (scheduled_time + INTERVAL '60 minutes')::TIME) > $3::TIME)
+         OR scheduled_time = $3::TIME
+       )
        AND ($5::int IS NULL OR id != $5)
      LIMIT 1`,
     [therapistId, dateStr, start, end, excludeSessionId]
@@ -108,7 +117,7 @@ async function checkTherapistAvailability(dbClient, therapistId, dateStr, startT
     return {
       available: false,
       layer: 'conflict',
-      reason: `Therapist has an overlapping session (ID: ${conflict.id}) scheduled from ${conflict.scheduled_start_time} to ${conflict.scheduled_end_time}`,
+      reason: `Therapist has an overlapping session (ID: ${conflict.id}) scheduled from ${conflict.scheduled_start_time || conflict.scheduled_time} to ${conflict.scheduled_end_time}`,
     };
   }
 
@@ -118,12 +127,12 @@ async function checkTherapistAvailability(dbClient, therapistId, dateStr, startT
 /**
  * Checks if a room has any overlapping active sessions.
  *
- * @param {object} dbClient 
- * @param {number} roomId 
- * @param {string} dateStr 
- * @param {string} startTime 
- * @param {string} endTime 
- * @param {number|null} excludeSessionId 
+ * @param {object} dbClient - PostgreSQL client or pool
+ * @param {number} roomId - ID of the room
+ * @param {string} dateStr - 'YYYY-MM-DD'
+ * @param {string} startTime - 'HH:MM:SS'
+ * @param {string} endTime - 'HH:MM:SS'
+ * @param {number|null} excludeSessionId - Optional session ID to exclude
  * @returns {Promise<{ available: boolean, reason?: string }>}
  */
 async function checkRoomAvailability(dbClient, roomId, dateStr, startTime, endTime, excludeSessionId = null) {
@@ -132,13 +141,16 @@ async function checkRoomAvailability(dbClient, roomId, dateStr, startTime, endTi
   const end = normalizeTimeString(endTime);
 
   const conflictRes = await runner.query(
-    `SELECT id, scheduled_start_time, scheduled_end_time, status
+    `SELECT id, scheduled_start_time, scheduled_end_time, scheduled_time, status
      FROM sessions
      WHERE room_id = $1
        AND scheduled_date = $2
        AND status != 'cancelled'
-       AND scheduled_start_time < $4::TIME
-       AND scheduled_end_time > $3::TIME
+       AND (
+         (COALESCE(scheduled_start_time, scheduled_time) < $4::TIME
+          AND COALESCE(scheduled_end_time, (scheduled_time + INTERVAL '60 minutes')::TIME) > $3::TIME)
+         OR scheduled_time = $3::TIME
+       )
        AND ($5::int IS NULL OR id != $5)
      LIMIT 1`,
     [roomId, dateStr, start, end, excludeSessionId]
