@@ -4,7 +4,7 @@ const app = require('../src/app');
 const { pool } = require('../src/config/db');
 
 async function runTests() {
-  console.log('🧪 Starting Therapist View & Progression Engine Integration Tests...\n');
+  console.log('🧪 Starting Upgraded Therapist View & Operational Endpoints Integration Tests...\n');
 
   // Start temporary server
   const server = http.createServer(app);
@@ -14,8 +14,9 @@ async function runTests() {
 
   console.log(`📡 Test server running on ${baseUrl}`);
 
-  let testClinicId, doctorUserId, therapistUserId, patientUserId, roomId, packageId, planId;
-  let stage1Id, stage2Id, stage3Id, session1Id, session2Id;
+  let testClinicId, doctorUserId, therapistUserId, secondTherapistUserId, patientUserId, roomId, packageId, planId;
+  let stage1Id, stage2Id, stage3Id, session1Id, session2Id, session3Id, session4Id;
+  let createdAvailabilityId;
   const testRunId = Date.now().toString().slice(-6);
 
   try {
@@ -45,7 +46,7 @@ async function runTests() {
       VALUES ($1, 'BAMS, MD (Ayurveda)', $2);
     `, [doctorUserId, `AYUR-TEST-${testRunId}`]);
 
-    // Therapist User
+    // Therapist User 1
     const therRes = await pool.query(`
       INSERT INTO users (role, name, email, phone, password_hash, gender, clinic_id)
       VALUES ('therapist', 'Ramesh Kumar', $1, $2, 'hash123', 'Male', $3)
@@ -57,6 +58,19 @@ async function runTests() {
       INSERT INTO therapist_profiles (user_id)
       VALUES ($1);
     `, [therapistUserId]);
+
+    // Therapist User 2 (for Shift Handover tests)
+    const ther2Res = await pool.query(`
+      INSERT INTO users (role, name, email, phone, password_hash, gender, clinic_id)
+      VALUES ('therapist', 'Kavita Joshi', $1, $2, 'hash123', 'Female', $3)
+      RETURNING id;
+    `, [`kavita.${testRunId}@ayursutra.com`, `+9199${testRunId}05`, testClinicId]);
+    secondTherapistUserId = ther2Res.rows[0].id;
+
+    await pool.query(`
+      INSERT INTO therapist_profiles (user_id)
+      VALUES ($1);
+    `, [secondTherapistUserId]);
 
     // Patient User
     const patUserRes = await pool.query(`
@@ -123,48 +137,98 @@ async function runTests() {
     // Sessions:
     // Session 1 (Assigned to Therapist for Stage 1)
     const ses1 = await pool.query(`
-      INSERT INTO sessions (plan_stage_id, patient_id, therapist_id, room_id, scheduled_date, scheduled_time, status)
-      VALUES ($1, $2, $3, $4, CURRENT_DATE, '10:00:00', 'scheduled')
+      INSERT INTO sessions (plan_stage_id, patient_id, therapist_id, room_id, scheduled_date, scheduled_time, scheduled_start_time, scheduled_end_time, status)
+      VALUES ($1, $2, $3, $4, CURRENT_DATE, '10:00:00', '10:00:00', '11:30:00', 'scheduled')
       RETURNING id;
     `, [stage1Id, patientUserId, therapistUserId, roomId]);
     session1Id = ses1.rows[0].id;
 
     // Session 2 (Assigned to Therapist for Stage 2)
     const ses2 = await pool.query(`
-      INSERT INTO sessions (plan_stage_id, patient_id, therapist_id, room_id, scheduled_date, scheduled_time, status)
-      VALUES ($1, $2, $3, $4, CURRENT_DATE, '14:00:00', 'scheduled')
+      INSERT INTO sessions (plan_stage_id, patient_id, therapist_id, room_id, scheduled_date, scheduled_time, scheduled_start_time, scheduled_end_time, status)
+      VALUES ($1, $2, $3, $4, CURRENT_DATE, '14:00:00', '14:00:00', '15:30:00', 'scheduled')
       RETURNING id;
     `, [stage2Id, patientUserId, therapistUserId, roomId]);
     session2Id = ses2.rows[0].id;
 
+    // Session 3 (for Emergency Pause testing)
+    const ses3 = await pool.query(`
+      INSERT INTO sessions (plan_stage_id, patient_id, therapist_id, room_id, scheduled_date, scheduled_time, scheduled_start_time, scheduled_end_time, status)
+      VALUES ($1, $2, $3, $4, CURRENT_DATE, '16:00:00', '16:00:00', '17:30:00', 'in_progress')
+      RETURNING id;
+    `, [stage1Id, patientUserId, therapistUserId, roomId]);
+    session3Id = ses3.rows[0].id;
+
+    // Session 4 (for Handover testing)
+    const ses4 = await pool.query(`
+      INSERT INTO sessions (plan_stage_id, patient_id, therapist_id, room_id, scheduled_date, scheduled_time, scheduled_start_time, scheduled_end_time, status)
+      VALUES ($1, $2, $3, $4, CURRENT_DATE, '17:30:00', '17:30:00', '19:00:00', 'scheduled')
+      RETURNING id;
+    `, [stage1Id, patientUserId, therapistUserId, roomId]);
+    session4Id = ses4.rows[0].id;
+
     console.log('✅ Test fixtures seeded successfully.');
 
     // --------------------------------------------------------------------------
-    // 2. TEST ENDPOINT 1: GET /api/therapist/queue/:therapistId
+    // 2. TEST ENDPOINT 1: GET /api/therapist/queue/:therapistId (Rich Enriched Response)
     // --------------------------------------------------------------------------
-    console.log('\n🔍 Step 2: Testing GET /api/therapist/queue/:therapistId...');
+    console.log('\n🔍 Step 2: Testing GET /api/therapist/queue/:therapistId (Rich Enriched Queue)...');
     const queueRes = await fetch(`${baseUrl}/api/therapist/queue/${therapistUserId}`);
     assert.strictEqual(queueRes.status, 200, `Expected 200 OK, got ${queueRes.status}`);
     const queueData = await queueRes.json();
 
-    console.log('Queue API Output:', JSON.stringify(queueData, null, 2));
+    console.log('Queue API Output sample item:', JSON.stringify(queueData[0], null, 2));
     assert(Array.isArray(queueData), 'Queue response should be an array');
-    assert.strictEqual(queueData.length, 2, 'Should return 2 active sessions for the therapist');
+    assert.strictEqual(queueData.length, 4, 'Should return 4 active sessions for the therapist');
 
     const firstItem = queueData[0];
+    // Dual Contracts & string ID checks
+    assert.strictEqual(firstItem.id, String(session1Id));
+    assert.strictEqual(firstItem.sessionId, session1Id);
     assert.strictEqual(firstItem.session_id, session1Id);
+    assert.strictEqual(firstItem.patientId, patientUserId);
+    assert.strictEqual(firstItem.patient_id, patientUserId);
+    assert.strictEqual(firstItem.patientName, 'Priya Verma');
     assert.strictEqual(firstItem.patient_name, 'Priya Verma');
+    assert.strictEqual(firstItem.patientGender, 'Female');
     assert.strictEqual(firstItem.patient_gender, 'Female');
+    assert.strictEqual(firstItem.stageCategory, 'Poorvakarma');
     assert.strictEqual(firstItem.stage_type, 'Poorvakarma');
+    assert.strictEqual(firstItem.stageName, 'Poorvakarma');
+    assert.strictEqual(firstItem.stageStatus, 'unlocked');
     assert.strictEqual(firstItem.stage_status, 'unlocked');
+    assert.strictEqual(firstItem.roomName, 'Droni Room A');
     assert.strictEqual(firstItem.room_name, 'Droni Room A');
     assert.strictEqual(firstItem.status, 'scheduled');
-    console.log('✅ Endpoint 1 (Queue fetch) passed with exact response shape.');
+    assert.strictEqual(firstItem.therapistId, therapistUserId);
+    assert.strictEqual(firstItem.therapist_id, therapistUserId);
+    assert.strictEqual(firstItem.therapistName, 'Ramesh Kumar');
+
+    // Preparation metadata checks
+    assert(Array.isArray(firstItem.materials), 'materials should be an array');
+    assert(firstItem.materials.length > 0, 'materials should have items');
+    assert(firstItem.materials[0].name !== undefined);
+    assert(firstItem.materials[0].quantityRequired !== undefined);
+    assert(firstItem.materials[0].inStock !== undefined);
+    assert.strictEqual(typeof firstItem.preInstructions, 'string');
+    assert.strictEqual(typeof firstItem.pre_instructions, 'string');
+    console.log('✅ Endpoint 1 (Rich Queue Fetch with Dual Contracts & Materials) passed.');
 
     // --------------------------------------------------------------------------
-    // 3. TEST ENDPOINT 2: PATCH /api/sessions/:sessionId/start
+    // 3. TEST SAFE VALIDATION: Invalid IDs rejection
     // --------------------------------------------------------------------------
-    console.log('\n🚀 Step 3: Testing PATCH /api/sessions/:sessionId/start...');
+    console.log('\n🛡️ Step 3: Testing Safe Validation & Error Handling on Malformed IDs...');
+    const invalidQueueRes = await fetch(`${baseUrl}/api/therapist/queue/not-a-valid-uuid`);
+    assert.strictEqual(invalidQueueRes.status, 400, 'Expected 400 Bad Request for malformed UUID');
+
+    const invalidSessionStartRes = await fetch(`${baseUrl}/api/sessions/invalid-id/start`, { method: 'PATCH' });
+    assert.strictEqual(invalidSessionStartRes.status, 400, 'Expected 400 Bad Request for non-integer session ID');
+    console.log('✅ Step 3 (Safe Parameter Validation) passed.');
+
+    // --------------------------------------------------------------------------
+    // 4. TEST ENDPOINT 2: PATCH /api/sessions/:sessionId/start (Dual Contracts)
+    // --------------------------------------------------------------------------
+    console.log('\n🚀 Step 4: Testing PATCH /api/sessions/:sessionId/start...');
     const startRes = await fetch(`${baseUrl}/api/sessions/${session1Id}/start`, {
       method: 'PATCH',
     });
@@ -173,8 +237,10 @@ async function runTests() {
 
     console.log('Start Session Output:', JSON.stringify(startData, null, 2));
     assert.strictEqual(startData.success, true);
+    assert.strictEqual(startData.sessionId, session1Id);
     assert.strictEqual(startData.session_id, session1Id);
     assert.strictEqual(startData.status, 'in_progress');
+    assert(startData.actualStartTime !== undefined);
 
     // Verify DB update
     const dbSessionAfterStart = await pool.query('SELECT status, actual_start_time FROM sessions WHERE id = $1', [session1Id]);
@@ -186,18 +252,18 @@ async function runTests() {
     console.log('✅ Endpoint 2 (Start session & stage update) passed.');
 
     // --------------------------------------------------------------------------
-    // 4. TEST ENDPOINT 3: POST /api/sessions/:sessionId/complete (Normal Success Flow)
+    // 5. TEST ENDPOINT 3: POST /api/sessions/:sessionId/complete (Flexible camelCase payload & Normal Flow)
     // --------------------------------------------------------------------------
-    console.log('\n🏁 Step 4: Testing POST /api/sessions/:sessionId/complete (Normal Flow)...');
+    console.log('\n🏁 Step 5: Testing POST /api/sessions/:sessionId/complete (Flexible camelCase Payload)...');
     const completeRes = await fetch(`${baseUrl}/api/sessions/${session1Id}/complete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        therapist_id: therapistUserId,
-        dosage_given: '50ml Medicated Ghee',
-        patient_response: 'normal',
-        vitals: { bp: '120/80', pulse: 72 },
-        complication_notes: '',
+        therapistId: therapistUserId, // camelCase
+        dosageGiven: '50ml Medicated Ghee', // camelCase
+        patientResponse: 'normal', // camelCase
+        vitals: { bp: '120/80', pulse: 72, temperature: '98.4F', spo2: '99%' },
+        complicationNotes: '', // camelCase
       }),
     });
 
@@ -205,8 +271,11 @@ async function runTests() {
     const completeData = await completeRes.json();
 
     console.log('Complete Session Normal Output:', JSON.stringify(completeData, null, 2));
+    assert.strictEqual(completeData.success, true);
     assert.strictEqual(completeData.status, 'COMPLETED');
+    assert.strictEqual(completeData.stageUnlocked, true);
     assert.strictEqual(completeData.stage_unlocked, true);
+    assert.strictEqual(completeData.alertGenerated, false);
     assert.strictEqual(completeData.alert_generated, false);
 
     // Verify DB updates for Normal Flow
@@ -224,12 +293,13 @@ async function runTests() {
     assert.strictEqual(dbObs.rows.length, 1);
     assert.strictEqual(dbObs.rows[0].dosage_given, '50ml Medicated Ghee');
     assert.strictEqual(dbObs.rows[0].patient_response, 'normal');
-    console.log('✅ Endpoint 3 Normal Progression Flow (Stage 1 -> Complete, Stage 2 -> Unlocked) passed.');
+    assert.strictEqual(dbObs.rows[0].vitals.spo2, '99%');
+    console.log('✅ Endpoint 3 Normal Progression Flow (camelCase normalization & DB state) passed.');
 
     // --------------------------------------------------------------------------
-    // 5. TEST ENDPOINT 3: POST /api/sessions/:sessionId/complete (Complication Flow)
+    // 6. TEST ENDPOINT 3: POST /api/sessions/:sessionId/complete (Complication Flow)
     // --------------------------------------------------------------------------
-    console.log('\n⚠️ Step 5: Testing POST /api/sessions/:sessionId/complete (Complication Flow)...');
+    console.log('\n⚠️ Step 6: Testing POST /api/sessions/:sessionId/complete (Complication Flow)...');
     
     // Start Session 2 first
     await fetch(`${baseUrl}/api/sessions/${session2Id}/start`, { method: 'PATCH' });
@@ -251,7 +321,9 @@ async function runTests() {
 
     console.log('Complete Session Complication Output:', JSON.stringify(complicationData, null, 2));
     assert.strictEqual(complicationData.status, 'FLAGGED');
+    assert.strictEqual(complicationData.stageUnlocked, false);
     assert.strictEqual(complicationData.stage_unlocked, false);
+    assert.strictEqual(complicationData.alertGenerated, true);
     assert.strictEqual(complicationData.alert_generated, true);
 
     // Verify DB updates for Complication Flow
@@ -266,13 +338,126 @@ async function runTests() {
     assert.strictEqual(dbStage3.rows[0].status, 'locked', 'Stage 3 must remain locked');
     console.log('✅ Endpoint 3 Complication Flow (Doctor alerted, Next stage kept locked) passed.');
 
-    console.log('\n🎉 ALL THERAPIST VIEW & PROGRESSION ENGINE TESTS PASSED PERFECTLY!\n');
+    // --------------------------------------------------------------------------
+    // 7. TEST OPERATIONAL ENDPOINT: Emergency Pause (POST /api/sessions/:sessionId/pause)
+    // --------------------------------------------------------------------------
+    console.log('\n🛑 Step 7: Testing Emergency Pause (POST /api/sessions/:sessionId/pause)...');
+    const pauseRes = await fetch(`${baseUrl}/api/sessions/${session3Id}/pause`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        therapistId: therapistUserId,
+        reason: 'Patient reported sudden dizziness and high heart rate during Swedana',
+        vitals: { bp: '160/100', pulse: 105 },
+      }),
+    });
+    assert.strictEqual(pauseRes.status, 200, `Expected 200 OK, got ${pauseRes.status}`);
+    const pauseData = await pauseRes.json();
+    console.log('Emergency Pause Output:', JSON.stringify(pauseData, null, 2));
+    assert.strictEqual(pauseData.success, true);
+    assert.strictEqual(pauseData.status, 'PAUSED');
+    assert.strictEqual(pauseData.alertGenerated, true);
+    assert.strictEqual(pauseData.alert_generated, true);
+    assert(pauseData.alertId !== undefined);
+
+    // Verify DB state
+    const pauseObs = await pool.query('SELECT * FROM session_observations WHERE session_id = $1', [session3Id]);
+    assert.strictEqual(pauseObs.rows.length, 1);
+    assert.strictEqual(pauseObs.rows[0].patient_response, 'abnormal');
+    assert(pauseObs.rows[0].complication_notes.includes('sudden dizziness'));
+    console.log('✅ Operational Endpoint 1 (Emergency Pause & Doctor Alert) passed.');
+
+    // --------------------------------------------------------------------------
+    // 8. TEST OPERATIONAL ENDPOINT: Shift Handover (POST /api/therapist/shift-handover)
+    // --------------------------------------------------------------------------
+    console.log('\n🔄 Step 8: Testing Shift Handover (POST /api/therapist/shift-handover)...');
+    const handoverRes = await fetch(`${baseUrl}/api/therapist/shift-handover`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sourceTherapistId: therapistUserId,
+        targetTherapistId: secondTherapistUserId,
+        sessionIds: [session4Id],
+        notes: 'Handover evening session due to shift completion',
+      }),
+    });
+    assert.strictEqual(handoverRes.status, 200, `Expected 200 OK, got ${handoverRes.status}`);
+    const handoverData = await handoverRes.json();
+    console.log('Shift Handover Output:', JSON.stringify(handoverData, null, 2));
+    assert.strictEqual(handoverData.success, true);
+    assert.strictEqual(handoverData.reassignedCount, 1);
+    assert.strictEqual(handoverData.targetTherapistId, secondTherapistUserId);
+
+    // Verify DB update
+    const dbSession4 = await pool.query('SELECT therapist_id FROM sessions WHERE id = $1', [session4Id]);
+    assert.strictEqual(dbSession4.rows[0].therapist_id, secondTherapistUserId, 'Session 4 should now belong to second therapist');
+    console.log('✅ Operational Endpoint 2 (Shift Handover & Reassignment) passed.');
+
+    // --------------------------------------------------------------------------
+    // 9. TEST OPERATIONAL ENDPOINT: Availability Tracking (POST & GET /api/therapist/availability)
+    // --------------------------------------------------------------------------
+    console.log('\n📅 Step 9: Testing Availability Tracking (POST, GET, PATCH, DELETE /api/therapist/availability)...');
+    
+    // Create Availability
+    const createAvailRes = await fetch(`${baseUrl}/api/therapist/availability`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        therapistId: therapistUserId,
+        date: '2026-08-25',
+        startTime: '08:00:00',
+        endTime: '16:00:00',
+        status: 'available',
+      }),
+    });
+    assert.strictEqual(createAvailRes.status, 201, `Expected 201 Created, got ${createAvailRes.status}`);
+    const createAvailData = await createAvailRes.json();
+    createdAvailabilityId = createAvailData.data.id;
+    assert.strictEqual(createAvailData.success, true);
+    assert.strictEqual(createAvailData.data.date, '2026-08-25');
+    assert.strictEqual(createAvailData.data.startTime, '08:00:00');
+    assert.strictEqual(createAvailData.data.start_time, '08:00:00');
+
+    // Get Availability
+    const getAvailRes = await fetch(`${baseUrl}/api/therapist/availability/${therapistUserId}?date=2026-08-25`);
+    assert.strictEqual(getAvailRes.status, 200);
+    const getAvailData = await getAvailRes.json();
+    assert(Array.isArray(getAvailData));
+    assert.strictEqual(getAvailData.length, 1);
+    assert.strictEqual(getAvailData[0].therapistId, therapistUserId);
+    assert.strictEqual(getAvailData[0].status, 'available');
+
+    // Update Availability (Mark as leave)
+    const updateAvailRes = await fetch(`${baseUrl}/api/therapist/availability/${createdAvailabilityId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        status: 'leave',
+      }),
+    });
+    assert.strictEqual(updateAvailRes.status, 200);
+    const updateAvailData = await updateAvailRes.json();
+    assert.strictEqual(updateAvailData.data.status, 'leave');
+
+    // Delete Availability
+    const delAvailRes = await fetch(`${baseUrl}/api/therapist/availability/${createdAvailabilityId}`, {
+      method: 'DELETE',
+    });
+    assert.strictEqual(delAvailRes.status, 200);
+
+    const getAvailAfterDel = await fetch(`${baseUrl}/api/therapist/availability/${therapistUserId}?date=2026-08-25`);
+    const getAvailAfterDelData = await getAvailAfterDel.json();
+    assert.strictEqual(getAvailAfterDelData.length, 0);
+
+    console.log('✅ Operational Endpoint 3 (Availability CRUD Lifecycle) passed.');
+
+    console.log('\n🎉 ALL UPGRADED THERAPIST VIEW & OPERATIONAL ENDPOINTS TESTS PASSED PERFECTLY!\n');
   } finally {
     // Clean up test data
     console.log('🧹 Cleaning up test fixtures...');
     try {
-      if (doctorUserId || therapistUserId || patientUserId) {
-        const userIds = [doctorUserId, therapistUserId, patientUserId].filter(Boolean);
+      if (doctorUserId || therapistUserId || secondTherapistUserId || patientUserId) {
+        const userIds = [doctorUserId, therapistUserId, secondTherapistUserId, patientUserId].filter(Boolean);
         await pool.query('DELETE FROM users WHERE id = ANY($1)', [userIds]);
       }
       if (testClinicId) {
