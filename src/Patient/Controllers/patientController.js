@@ -41,13 +41,35 @@ const patientController = {
 
   /**
    * 2. POST /api/patient/feedback
-   * Records the patient's post-session clinical feedback with flexible payload mapping.
+   * Records the patient's post-session clinical feedback with flexible payload mapping and fallbacks.
    */
   submitFeedback: async (req, res) => {
-    const rawSessionId = getNormalizedParam(req.body, 'session_id', 'sessionId', 'id');
-    const patientId = getNormalizedParam(req.body, 'patient_id', 'patientId', 'userId', 'user_id');
+    const {
+      sessionId,
+      session_id,
+      patientId,
+      patient_id,
+      rating,
+      symptomImprovementScore,
+      symptom_improvement_score,
+      overallExperience,
+      overall_experience,
+      comments,
+      notes,
+      pain_scale,
+      painScale,
+      sleep_quality,
+      sleepQuality,
+      energy_level,
+      energyLevel,
+      side_effects,
+      sideEffects,
+    } = req.body;
 
-    if (!rawSessionId || !patientId) {
+    const rawSessionId = sessionId || session_id || req.body.id;
+    const cleanPatientId = patientId || patient_id || req.body.userId || req.body.user_id;
+
+    if (!rawSessionId || !cleanPatientId) {
       return res.status(400).json({
         success: false,
         message: 'session_id and patient_id are required fields.',
@@ -62,58 +84,60 @@ const patientController = {
       });
     }
 
-    if (!isValidUUID(patientId)) {
+    if (!isValidUUID(cleanPatientId)) {
       return res.status(400).json({
         success: false,
         message: 'patient_id must be a valid UUID.',
       });
     }
 
-    const symptomImprovementScore = getNormalizedParam(
-      req.body,
-      'symptomImprovementScore',
-      'symptom_improvement_score'
-    );
-    const rating = getNormalizedParam(req.body, 'rating');
-    const overallExperience = getNormalizedParam(
-      req.body,
-      'overallExperience',
-      'overall_experience',
-      'comments',
-      'notes'
-    );
+    const effectiveImprovementScore =
+      symptomImprovementScore !== undefined ? symptomImprovementScore : symptom_improvement_score;
+    const rawPain = pain_scale !== undefined ? pain_scale : painScale;
+    const rawSleep = sleep_quality !== undefined ? sleep_quality : sleepQuality;
+    const rawEnergy = energy_level !== undefined ? energy_level : energyLevel;
+    const rawSideEffects = side_effects !== undefined ? side_effects : sideEffects;
 
-    // Dynamic fallback mappings as specified in requirements
-    let painScale = getNormalizedParam(req.body, 'pain_scale', 'painScale');
-    if (painScale === undefined && symptomImprovementScore !== undefined) {
-      const parsedScore = parseInt(symptomImprovementScore, 10);
-      painScale = !isNaN(parsedScore) ? Math.max(1, 10 - parsedScore) : 3;
-    }
+    const parsedImprovement =
+      effectiveImprovementScore !== undefined ? parseInt(effectiveImprovementScore, 10) : NaN;
+    const parsedRating = rating !== undefined ? parseInt(rating, 10) : NaN;
 
-    let sleepQuality = getNormalizedParam(req.body, 'sleep_quality', 'sleepQuality');
-    if (sleepQuality === undefined && rating !== undefined) {
-      const parsedRating = parseInt(rating, 10);
-      sleepQuality = !isNaN(parsedRating) ? Math.min(10, Math.max(1, parsedRating * 2)) : 8;
-    }
+    const dbPainScale =
+      rawPain !== undefined
+        ? parseInt(rawPain, 10)
+        : !isNaN(parsedImprovement)
+        ? Math.max(1, 10 - parsedImprovement)
+        : 3;
 
-    let energyLevel = getNormalizedParam(req.body, 'energy_level', 'energyLevel');
-    if (energyLevel === undefined && rating !== undefined) {
-      const parsedRating = parseInt(rating, 10);
-      energyLevel = !isNaN(parsedRating) ? Math.min(10, Math.max(1, parsedRating * 2)) : 7;
-    }
+    const dbSleepQuality =
+      rawSleep !== undefined
+        ? parseInt(rawSleep, 10)
+        : !isNaN(parsedRating)
+        ? Math.min(10, Math.max(1, parsedRating * 2))
+        : 8;
 
-    const sideEffects =
-      getNormalizedParam(req.body, 'side_effects', 'sideEffects') ||
+    const dbEnergyLevel =
+      rawEnergy !== undefined
+        ? parseInt(rawEnergy, 10)
+        : !isNaN(parsedRating)
+        ? Math.min(10, Math.max(1, parsedRating * 2))
+        : 7;
+
+    const dbSideEffects =
+      rawSideEffects ||
+      comments ||
       overallExperience ||
-      'Normal recovery';
+      overall_experience ||
+      notes ||
+      'Normal post-therapy recovery';
 
     const result = await patientService.submitFeedback({
       sessionId: parsedSessionId,
-      patientId,
-      painScale,
-      sleepQuality,
-      energyLevel,
-      sideEffects,
+      patientId: cleanPatientId,
+      painScale: dbPainScale,
+      sleepQuality: dbSleepQuality,
+      energyLevel: dbEnergyLevel,
+      sideEffects: dbSideEffects,
     });
 
     return res.status(201).json(result);

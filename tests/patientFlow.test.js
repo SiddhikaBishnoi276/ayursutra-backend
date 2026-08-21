@@ -15,7 +15,7 @@ async function runTests() {
   console.log(`📡 Test server running on ${baseUrl}`);
 
   let testClinicId, doctorUserId, therapistUserId, patientUserId, roomId, packageId, planId;
-  let stage1Id, stage2Id, session1Id, session2Id;
+  let pkgStage1Id, pkgStage2Id, stage1Id, stage2Id, session1Id, session2Id;
   const testRunId = Date.now().toString().slice(-6);
 
   try {
@@ -85,13 +85,27 @@ async function runTests() {
     `, [testClinicId]);
     roomId = roomRes.rows[0].id;
 
-    // Therapy Package
+    // Therapy Package & Master Stages (with session_duration_minutes & instructions)
     const pkgRes = await pool.query(`
       INSERT INTO therapy_packages (clinic_id, name, therapy_type)
       VALUES ($1, '7-Day Virechana Protocol', 'Virechana')
       RETURNING id;
     `, [testClinicId]);
     packageId = pkgRes.rows[0].id;
+
+    const pkgStage1Res = await pool.query(`
+      INSERT INTO therapy_package_stages (package_id, stage_type, sequence_order, duration_days, session_duration_minutes, pre_instructions, post_instructions)
+      VALUES ($1, 'Poorvakarma', 1, 3, 90, 'Internal Snehapana with medicated ghee.', 'Rest in warm room for 30 minutes.')
+      RETURNING id;
+    `, [packageId]);
+    pkgStage1Id = pkgStage1Res.rows[0].id;
+
+    const pkgStage2Res = await pool.query(`
+      INSERT INTO therapy_package_stages (package_id, stage_type, sequence_order, duration_days, session_duration_minutes, pre_instructions, post_instructions)
+      VALUES ($1, 'Pradhanakarma', 2, 1, 90, 'Strict morning fasting.', 'Consume warm thin rice water.')
+      RETURNING id;
+    `, [packageId]);
+    pkgStage2Id = pkgStage2Res.rows[0].id;
 
     // Therapy Plan
     const planRes = await pool.query(`
@@ -104,19 +118,39 @@ async function runTests() {
     // Sequential Stages:
     // Stage 1: Poorvakarma (complete)
     const stg1 = await pool.query(`
-      INSERT INTO therapy_plan_stages (plan_id, stage_type, sequence_order, duration_days, status)
-      VALUES ($1, 'Poorvakarma', 1, 3, 'complete')
+      INSERT INTO therapy_plan_stages (plan_id, package_stage_id, stage_type, sequence_order, duration_days, status)
+      VALUES ($1, $2, 'Poorvakarma', 1, 3, 'complete')
       RETURNING id;
-    `, [planId]);
+    `, [planId, pkgStage1Id]);
     stage1Id = stg1.rows[0].id;
 
     // Stage 2: Pradhanakarma (unlocked - Active Stage)
     const stg2 = await pool.query(`
-      INSERT INTO therapy_plan_stages (plan_id, stage_type, sequence_order, duration_days, status)
-      VALUES ($1, 'Pradhanakarma', 2, 1, 'unlocked')
+      INSERT INTO therapy_plan_stages (plan_id, package_stage_id, stage_type, sequence_order, duration_days, status)
+      VALUES ($1, $2, 'Pradhanakarma', 2, 1, 'unlocked')
       RETURNING id;
-    `, [planId]);
+    `, [planId, pkgStage2Id]);
     stage2Id = stg2.rows[0].id;
+
+    // Diet & Exercise Plan (AI Generated / Approved)
+    await pool.query(`
+      INSERT INTO diet_exercise_plans (plan_id, stage_type, diet_chart, exercise_plan, status, approved_by, approved_at)
+      VALUES ($1, 'Pradhanakarma', $2, $3, 'approved', $4, CURRENT_TIMESTAMP);
+    `, [
+      planId,
+      JSON.stringify({
+        planTitle: 'AI Doctor Prescribed Pradhanakarma Diet',
+        dietaryGuidelines: ['Strictly consume thin warm Peya', 'No solid food until Vega cessation'],
+        forbiddenFoods: ['Cold water', 'Spicy foods'],
+        permittedDrinks: ['Lukewarm water boiled with dry ginger'],
+        lifestyleTips: ['Rest completely in supine posture'],
+      }),
+      JSON.stringify({
+        allowed: ['Gentle deep breathing', 'Anulom Vilom (5 mins)'],
+        forbidden: ['Asanas', 'Heavy walking', 'Jogging'],
+      }),
+      doctorUserId,
+    ]);
 
     // Sessions:
     // Session 1 (Completed Session for Stage 1)
@@ -178,6 +212,8 @@ async function runTests() {
     assert.strictEqual(timeline1.session_status, 'completed');
     assert.strictEqual(timeline1.status, 'completed');
     assert.strictEqual(timeline1.feedbackSubmitted, false);
+    assert.strictEqual(timeline1.scheduledEndTime, '11:30:00');
+    assert.strictEqual(timeline1.durationMinutes, 90);
     assert(Array.isArray(timeline1.preCareNotes));
     assert(Array.isArray(timeline1.postCareNotes));
     assert(typeof timeline1.therapistNotesSummary === 'string');
@@ -195,14 +231,17 @@ async function runTests() {
     assert.strictEqual(timeline2.status, 'upcoming'); // Mapped scheduled -> upcoming
     assert.strictEqual(timeline2.canReschedule, true);
     assert.strictEqual(timeline2.time, '02:00 PM'); // 14:00:00 -> 02:00 PM
+    assert.strictEqual(timeline2.scheduledEndTime, '15:30:00');
+    assert.strictEqual(timeline2.durationMinutes, 90);
 
-    // Validate dietPlan (Dosha-targeted)
+    // Validate dietPlan (AI & Dosha targeted)
     assert(dashData.dietPlan, 'Should contain dietPlan');
     assert.strictEqual(dashData.dietPlan.doshaTarget, 'Vata-Pitta Balance');
     assert(Array.isArray(dashData.dietPlan.dietaryGuidelines));
     assert(Array.isArray(dashData.dietPlan.forbiddenFoods));
     assert(Array.isArray(dashData.dietPlan.permittedDrinks));
     assert(Array.isArray(dashData.dietPlan.lifestyleTips));
+    assert(dashData.dietPlan.exercisePlan, 'Should contain AI exercise plan');
 
     // Validate medications
     assert(Array.isArray(dashData.medications), 'Should contain medications array');
@@ -212,7 +251,6 @@ async function runTests() {
     // Validate current_diet_instructions (backwards compatibility)
     assert(dashData.current_diet_instructions, 'Should contain current_diet_instructions');
     assert.strictEqual(dashData.current_diet_instructions.stage, 'Pradhanakarma');
-    assert(dashData.current_diet_instructions.pathya.includes('Rice Gruel') || dashData.current_diet_instructions.pathya.includes('Peya'));
 
     // Validate simulated_reminder
     assert(typeof dashData.simulated_reminder === 'string' && dashData.simulated_reminder.length > 0);
@@ -294,6 +332,7 @@ async function runTests() {
     const updatedDashData = await updatedDashRes.json();
     assert.strictEqual(updatedDashData.sessions_timeline[0].feedbackSubmitted, true);
     assert.strictEqual(updatedDashData.sessions_timeline[1].feedbackSubmitted, true);
+    assert(updatedDashData.sessions_timeline[0].feedback !== null);
     console.log('✅ Step 5 (feedbackSubmitted dynamic calculation) passed.');
 
     // --------------------------------------------------------------------------

@@ -23,7 +23,7 @@ const STAGE_DIET_GUIDELINES = {
 };
 
 /**
- * Dosha-targeted Diet Frameworks
+ * Dosha-targeted Diet Frameworks (Master Defaults)
  */
 const DOSHA_DIET_PLANS = {
   'Vata-Kapha': {
@@ -171,7 +171,7 @@ const STAGE_CARE_NOTES = {
 
 const patientService = {
   /**
-   * 1. Fetch patient dashboard data with dual camelCase/snake_case contract
+   * 1. Fetch patient dashboard data with dynamic end times, joined stage instructions, AI diet plans, and dual contracts
    */
   getDashboardData: async (patientId) => {
     // 1. Fetch patient profile, confirmed Prakriti, and active therapy plan details
@@ -214,45 +214,53 @@ const patientService = {
     let sessionsTimeline = [];
     let currentStageType = 'Poorvakarma';
     let totalPlanDays = 7;
+    let aiDietExercisePlan = null;
 
-    // 2. If active plan exists, fetch all sessions across sequential stages
-    if (patientData.plan_id) {
-      const timelineQuery = `
-        SELECT 
-          s.id AS session_id,
-          s.plan_stage_id,
-          s.patient_id,
-          s.therapist_id,
-          therapist_user.name AS therapist_name,
-          tps.stage_type,
-          tps.sequence_order,
-          tps.duration_days,
-          tps.status AS stage_status,
-          pkg_stage.pre_instructions,
-          pkg_stage.post_instructions,
-          TO_CHAR(s.scheduled_date, 'YYYY-MM-DD') AS scheduled_date,
-          s.scheduled_time::text AS scheduled_time,
-          COALESCE(r.name, 'Unassigned') AS room_name,
-          s.status AS session_status,
-          pf.id AS feedback_id
-        FROM sessions s
-        JOIN therapy_plan_stages tps ON s.plan_stage_id = tps.id
-        LEFT JOIN therapy_package_stages pkg_stage ON tps.package_stage_id = pkg_stage.id
-        LEFT JOIN rooms r ON s.room_id = r.id
-        LEFT JOIN users therapist_user ON s.therapist_id = therapist_user.id
-        LEFT JOIN patient_feedback pf ON pf.session_id = s.id
-        WHERE tps.plan_id = $1
-        ORDER BY tps.sequence_order ASC, s.scheduled_date ASC, s.scheduled_time ASC;
-      `;
+    // 2. Query Sessions Timeline joining therapy_package_stages and patient_feedback
+    const timelineQuery = `
+      SELECT 
+        s.id AS session_id,
+        s.plan_stage_id,
+        TO_CHAR(s.scheduled_date, 'YYYY-MM-DD') AS scheduled_date,
+        s.scheduled_time::text AS scheduled_time,
+        COALESCE(s.scheduled_start_time::text, s.scheduled_time::text) AS scheduled_start_time,
+        COALESCE(s.scheduled_end_time::text, (s.scheduled_time + INTERVAL '60 minutes')::TIME::text) AS scheduled_end_time,
+        s.status AS session_status,
+        tps.sequence_order,
+        tps.stage_type,
+        tps.status AS stage_status,
+        tps.duration_days,
+        COALESCE(tps_master.session_duration_minutes, 60) AS session_duration_minutes,
+        COALESCE(tps_master.pre_instructions, 'Light digestible meal 2 hours prior.') AS pre_instructions,
+        COALESCE(tps_master.post_instructions, 'Avoid cold drafts and AC exposure.') AS post_instructions,
+        r.name AS room_name,
+        u_therapist.id AS therapist_id,
+        u_therapist.name AS therapist_name,
+        u_therapist.phone AS therapist_phone,
+        pf.id AS feedback_id,
+        pf.pain_scale,
+        pf.sleep_quality,
+        pf.energy_level,
+        pf.side_effects
+      FROM sessions s
+      JOIN therapy_plan_stages tps ON s.plan_stage_id = tps.id
+      LEFT JOIN therapy_package_stages tps_master ON tps.package_stage_id = tps_master.id
+      LEFT JOIN rooms r ON s.room_id = r.id
+      LEFT JOIN users u_therapist ON s.therapist_id = u_therapist.id
+      LEFT JOIN patient_feedback pf ON pf.session_id = s.id
+      WHERE s.patient_id = $1
+      ORDER BY s.scheduled_date ASC, s.scheduled_time ASC;
+    `;
 
-      const timelineRes = await pool.query(timelineQuery, [patientData.plan_id]);
-      const rawRows = timelineRes.rows;
+    const timelineRes = await pool.query(timelineQuery, [patientId]);
+    const rawRows = timelineRes.rows;
 
+    if (rawRows.length > 0) {
       // Calculate total days
       const stageDaysSum = rawRows.reduce((acc, row) => acc + (row.duration_days || 0), 0);
-      totalPlanDays = stageDaysSum > 0 ? stageDaysSum : (rawRows.length || 7);
+      totalPlanDays = stageDaysSum > 0 ? stageDaysSum : rawRows.length;
 
-      // Determine current active / in_progress / unlocked stage
+      // Determine current active stage
       const inProgressStage = rawRows.find((item) => item.stage_status === 'in_progress');
       const unlockedStage = rawRows.find((item) => item.stage_status === 'unlocked');
 
@@ -260,7 +268,7 @@ const patientService = {
         currentStageType = inProgressStage.stage_type;
       } else if (unlockedStage) {
         currentStageType = unlockedStage.stage_type;
-      } else if (rawRows.length > 0) {
+      } else {
         const allCompleted = rawRows.every((item) => item.stage_status === 'complete');
         currentStageType = allCompleted
           ? rawRows[rawRows.length - 1].stage_type
@@ -298,15 +306,24 @@ const patientService = {
           time: formattedTime,
           scheduledTime: row.scheduled_time,
           scheduled_time: row.scheduled_time,
-          durationMinutes: 90,
-          duration_minutes: 90,
+          scheduledStartTime: row.scheduled_start_time || row.scheduled_time,
+          scheduled_start_time: row.scheduled_start_time || row.scheduled_time,
+          scheduledEndTime: row.scheduled_end_time,
+          scheduled_end_time: row.scheduled_end_time,
+          startTime: row.scheduled_start_time || row.scheduled_time,
+          endTime: row.scheduled_end_time,
+          end_time: row.scheduled_end_time,
+          durationMinutes: row.session_duration_minutes,
+          duration_minutes: row.session_duration_minutes,
           therapistId: row.therapist_id,
           therapist_id: row.therapist_id,
           therapistName: row.therapist_name || 'Assigned Therapist',
           therapist_name: row.therapist_name || 'Assigned Therapist',
-          roomNumber: row.room_name,
-          roomName: row.room_name,
-          room_name: row.room_name,
+          therapistPhone: row.therapist_phone || '',
+          therapist_phone: row.therapist_phone || '',
+          roomNumber: row.room_name || 'Unassigned',
+          roomName: row.room_name || 'Unassigned',
+          room_name: row.room_name || 'Unassigned',
           stageName,
           stage_name: stageName,
           stageCategory: row.stage_type,
@@ -331,26 +348,69 @@ const patientService = {
           feedback_submitted: feedbackSubmitted,
           canReschedule,
           can_reschedule: canReschedule,
+          feedback: feedbackSubmitted
+            ? {
+                id: row.feedback_id,
+                painScale: row.pain_scale,
+                pain_scale: row.pain_scale,
+                sleepQuality: row.sleep_quality,
+                sleep_quality: row.sleep_quality,
+                energyLevel: row.energy_level,
+                energy_level: row.energy_level,
+                sideEffects: row.side_effects,
+                side_effects: row.side_effects,
+              }
+            : null,
         };
       });
     }
 
-    // 3. Stage-specific Diet instructions (for backwards compatibility)
+    // 3. Stage-wise AI Diet & Exercise Extraction from diet_exercise_plans
+    if (patientData.plan_id) {
+      const dietQuery = `
+        SELECT 
+          id,
+          stage_type,
+          diet_chart,
+          exercise_plan,
+          status
+        FROM diet_exercise_plans
+        WHERE plan_id = $1
+        ORDER BY ai_generated_at DESC;
+      `;
+      const dietRes = await pool.query(dietQuery, [patientData.plan_id]);
+      if (dietRes.rows.length > 0) {
+        aiDietExercisePlan = dietRes.rows.find((d) => d.stage_type === currentStageType) || dietRes.rows[0];
+      }
+    }
+
+    // 4. Dosha-targeted & Stage-specific Diet Guidelines
+    const confirmedDosha = patientData.confirmed_dosha || 'Vata-Kapha';
+    const doshaKey = DOSHA_DIET_PLANS[confirmedDosha]
+      ? confirmedDosha
+      : Object.keys(DOSHA_DIET_PLANS).find((k) => confirmedDosha.includes(k.split('-')[0])) ||
+        'Vata-Kapha';
+    const masterDoshaPlan = DOSHA_DIET_PLANS[doshaKey] || DOSHA_DIET_PLANS['Vata-Kapha'];
+
+    let dietPlan = {
+      planTitle: aiDietExercisePlan?.diet_chart?.planTitle || masterDoshaPlan.planTitle,
+      doshaTarget: masterDoshaPlan.doshaTarget,
+      dietaryGuidelines: aiDietExercisePlan?.diet_chart?.dietaryGuidelines || masterDoshaPlan.dietaryGuidelines,
+      forbiddenFoods: aiDietExercisePlan?.diet_chart?.forbiddenFoods || masterDoshaPlan.forbiddenFoods,
+      permittedDrinks: aiDietExercisePlan?.diet_chart?.permittedDrinks || masterDoshaPlan.permittedDrinks,
+      lifestyleTips: aiDietExercisePlan?.diet_chart?.lifestyleTips || masterDoshaPlan.lifestyleTips,
+      exercisePlan: aiDietExercisePlan?.exercise_plan || null,
+      exercise_plan: aiDietExercisePlan?.exercise_plan || null,
+    };
+
+    // 5. Backwards-compatible Stage Diet instructions
     const currentDietInstructions = STAGE_DIET_GUIDELINES[currentStageType] || {
       stage: currentStageType,
       pathya: 'Warm water, lightly cooked nourishing sattvic meals',
       apathya: 'Heavy, fried, oily, and cold foods',
     };
 
-    // 4. Dosha-targeted Diet Plan
-    const confirmedDosha = patientData.confirmed_dosha || 'Vata-Kapha';
-    const doshaKey = DOSHA_DIET_PLANS[confirmedDosha]
-      ? confirmedDosha
-      : Object.keys(DOSHA_DIET_PLANS).find((k) => confirmedDosha.includes(k.split('-')[0])) ||
-        'Vata-Kapha';
-    const dietPlan = DOSHA_DIET_PLANS[doshaKey] || DOSHA_DIET_PLANS['Vata-Kapha'];
-
-    // 5. Simulated Contextual Reminder
+    // 6. Simulated Contextual Reminder
     let simulatedReminder = 'Your next detox session is scheduled for tomorrow. Maintain light fasting 2 hours prior.';
     const nextSession = sessionsTimeline.find(
       (s) => s.session_status === 'scheduled' || s.session_status === 'in_progress'
@@ -364,7 +424,7 @@ const patientService = {
       simulatedReminder = 'No upcoming sessions scheduled. Please contact your clinic administrator.';
     }
 
-    // 6. Patient Info object with dual keys
+    // 7. Patient Info object with dual keys
     const patientInfo = {
       id: `PT-${patientData.patient_id ? String(patientData.patient_id).slice(-4).toUpperCase() : '104'}`,
       patientId: patientData.patient_id,
