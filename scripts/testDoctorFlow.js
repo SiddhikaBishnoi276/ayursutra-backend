@@ -61,11 +61,13 @@ async function main() {
     logStep('Step 2: Add New Patient');
     const patientPayload = {
       name: 'Test Patient ' + Date.now(),
+      email: 'test.patient.' + Date.now() + '@example.com',
       age: 31,
       gender: 'Female',
       contact_number: '90000' + Math.floor(10000 + Math.random() * 89999),
       chief_complaint: 'Automated test — chronic fatigue',
     };
+
     const addPatient = await request('POST', '/api/doctor/patients', patientPayload, authHeader);
     if (addPatient.status === 201 && (addPatient.data.patient?.user_id || addPatient.data.id)) {
       const p = addPatient.data.patient || addPatient.data;
