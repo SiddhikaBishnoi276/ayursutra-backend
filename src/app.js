@@ -82,6 +82,8 @@ app.use('/api/clinics', adminResourceRoutes);
 app.use('/api/staff', staffRoutes);
 app.use('/api/rooms', roomRoutes);
 app.use('/api/protocols', protocolRoutes);
+app.use('/api/admin/packages', protocolRoutes);
+app.use('/api/admin/protocols', protocolRoutes);
 app.use('/api/prakriti-questions', prakritiQuestionRoutes);
 app.use('/api/admin/dashboard', adminDashboardRoutes);
 

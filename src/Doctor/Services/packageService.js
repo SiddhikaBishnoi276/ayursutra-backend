@@ -1,3 +1,4 @@
+// src/Doctor/Services/packageService.js
 const { pool, query } = require('../../config/db');
 
 const VALID_THERAPY_TYPES = ['Vamana', 'Virechana', 'Basti', 'Nasya', 'Raktamokshana'];
@@ -64,6 +65,8 @@ async function listPackages(clinicId, patientId = null) {
       p.id,
       p.name,
       p.therapy_type,
+      p.description,
+      p.base_price,
       p.created_by,
       p.is_active,
       p.created_at,
@@ -77,8 +80,11 @@ async function listPackages(clinicId, patientId = null) {
         json_agg(
           json_build_object(
             'id', s.id,
+            'package_id', s.package_id,
             'name', s.stage_type || ' Stage',
+            'stageName', s.stage_type || ' Stage',
             'category', s.stage_type,
+            'stageCategory', s.stage_type,
             'stage_type', s.stage_type,
             'sequenceOrder', s.sequence_order,
             'sequence_order', s.sequence_order,
@@ -103,7 +109,7 @@ async function listPackages(clinicId, patientId = null) {
     LEFT JOIN users creator ON creator.id = p.created_by
     LEFT JOIN therapy_package_stages s ON s.package_id = p.id
     WHERE p.clinic_id = $1 AND p.is_active = true
-    GROUP BY p.id, p.name, p.therapy_type, p.created_by, p.is_active, p.created_at, creator.role
+    GROUP BY p.id, p.name, p.therapy_type, p.description, p.base_price, p.created_by, p.is_active, p.created_at, creator.role
     ORDER BY p.name ASC;
   `;
 
@@ -119,7 +125,8 @@ async function listPackages(clinicId, patientId = null) {
       name: row.name,
       therapy_type: row.therapy_type,
       targetDosha: row.therapy_type,
-      description: `Classical clinical protocol for ${row.name}.`,
+      description: row.description || `Classical clinical protocol for ${row.name}.`,
+      base_price: parseFloat(row.base_price || 0),
       durationDays: parseInt(row.total_duration_days || 7, 10),
       duration_days: parseInt(row.total_duration_days || 7, 10),
       isStandard: Boolean(row.is_standard),
@@ -145,14 +152,18 @@ async function createPackage(doctorUser, packageData) {
   try {
     await client.query('BEGIN');
 
-    const name = packageData.name || 'Custom Therapy Protocol';
+    const name = packageData.name ? packageData.name.trim() : 'Custom Therapy Protocol';
     const therapyType = sanitizeTherapyType(packageData.therapy_type || packageData.targetDosha);
+    const clinicId = parseInt(packageData.clinic_id || doctorUser?.clinic_id || 1, 10);
+    const description = packageData.description?.trim() || `Classical clinical protocol for ${name}.`;
+    const basePrice = packageData.base_price !== undefined ? parseFloat(packageData.base_price) : 0;
+    const createdBy = doctorUser?.id || packageData.created_by || null;
 
     const pkgRes = await client.query(
-      `INSERT INTO therapy_packages (clinic_id, name, therapy_type, created_by, is_active)
-       VALUES ($1, $2, $3, $4, true)
-       RETURNING id, name, therapy_type, created_by, is_active, created_at`,
-      [doctorUser.clinic_id, name, therapyType, doctorUser.id]
+      `INSERT INTO therapy_packages (clinic_id, name, therapy_type, description, base_price, created_by, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, true)
+       RETURNING id, name, therapy_type, description, base_price, clinic_id, created_by, is_active, created_at`,
+      [clinicId, name, therapyType, description, basePrice, createdBy]
     );
     const newPkg = pkgRes.rows[0];
 
@@ -165,12 +176,12 @@ async function createPackage(doctorUser, packageData) {
         ];
 
     const createdStages = [];
-    let runningOffset = 1;
+    let runningOffset = 0;
 
     for (let i = 0; i < inputStages.length; i++) {
       const s = inputStages[i];
-      const stageType = sanitizeStageType(s.stage_type || s.category || s.name, i);
-      const sequenceOrder = s.sequence_order || s.sequenceOrder || (i + 1);
+      const stageType = sanitizeStageType(s.stage_type || s.stageCategory || s.category || s.name, i);
+      const sequenceOrder = s.sequence_order !== undefined ? s.sequence_order : (s.sequenceOrder !== undefined ? s.sequenceOrder : i + 1);
       const durationDays = parseInt(s.duration_days || s.durationDays || 1, 10);
       const sessionDurationMinutes = parseInt(s.session_duration_minutes || s.durationMinutes || 60, 10);
       const dayOffset = s.day_offset !== undefined ? s.day_offset : (s.dayOffset !== undefined ? s.dayOffset : runningOffset);
@@ -185,7 +196,7 @@ async function createPackage(doctorUser, packageData) {
            post_instructions, base_diet_framework
          )
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-         RETURNING id, stage_type, sequence_order, day_offset, duration_days, session_duration_minutes, pre_instructions, post_instructions`,
+         RETURNING id, package_id, stage_type, sequence_order, day_offset, duration_days, session_duration_minutes, pre_instructions, post_instructions, base_diet_framework`,
         [
           newPkg.id,
           stageType,
@@ -195,39 +206,56 @@ async function createPackage(doctorUser, packageData) {
           sessionDurationMinutes,
           preInstructions,
           postInstructions,
-          baseDiet,
+          baseDiet ? JSON.stringify(baseDiet) : null,
         ]
       );
-      createdStages.push(stageRes.rows[0]);
+      const row = stageRes.rows[0];
+      createdStages.push({
+        id: row.id,
+        package_id: row.package_id,
+        stage_type: row.stage_type,
+        stageName: `${row.stage_type} Stage`,
+        name: `${row.stage_type} Stage`,
+        category: row.stage_type,
+        stageCategory: row.stage_type,
+        sequence_order: row.sequence_order,
+        sequenceOrder: row.sequence_order,
+        day_offset: row.day_offset,
+        dayOffset: row.day_offset,
+        duration_days: row.duration_days,
+        durationDays: row.duration_days,
+        session_duration_minutes: row.session_duration_minutes,
+        durationMinutes: row.session_duration_minutes,
+        pre_instructions: row.pre_instructions || '',
+        preInstructions: row.pre_instructions || '',
+        post_instructions: row.post_instructions || '',
+        postInstructions: row.post_instructions || '',
+        base_diet_framework: row.base_diet_framework,
+      });
       runningOffset += durationDays;
     }
 
     await client.query('COMMIT');
 
     const totalDays = createdStages.reduce((acc, s) => acc + s.duration_days, 0);
-    const isStandard = doctorUser.role === 'clinic_admin' || doctorUser.role === 'solo_practitioner';
+    const isStandard = doctorUser?.role === 'clinic_admin' || doctorUser?.role === 'solo_practitioner';
 
     return {
       id: newPkg.id,
+      _raw_id: newPkg.id,
       name: newPkg.name,
       therapy_type: newPkg.therapy_type,
       targetDosha: newPkg.therapy_type,
+      description: newPkg.description,
+      base_price: parseFloat(newPkg.base_price || 0),
       durationDays: totalDays,
       duration_days: totalDays,
+      total_duration_days: totalDays,
       isStandard,
       is_standard: isStandard,
+      clinic_id: newPkg.clinic_id,
       created_by: newPkg.created_by,
-      stages: createdStages.map((s) => ({
-        id: s.id,
-        name: `${s.stage_type} Stage`,
-        category: s.stage_type,
-        sequenceOrder: s.sequence_order,
-        dayOffset: s.day_offset,
-        durationDays: s.duration_days,
-        durationMinutes: s.session_duration_minutes,
-        preInstructions: s.pre_instructions || '',
-        postInstructions: s.post_instructions || '',
-      })),
+      stages: createdStages,
     };
   } catch (err) {
     await client.query('ROLLBACK');
@@ -237,4 +265,4 @@ async function createPackage(doctorUser, packageData) {
   }
 }
 
-module.exports = { listPackages, createPackage };
+module.exports = { listPackages, createPackage, sanitizeTherapyType, sanitizeStageType };

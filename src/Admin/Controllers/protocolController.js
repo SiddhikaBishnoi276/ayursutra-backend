@@ -1,3 +1,4 @@
+// src/Admin/Controllers/protocolController.js
 const protocolService = require('../Services/protocolService');
 
 // Allowed enums from schema.sql constraints
@@ -12,14 +13,17 @@ const validateStages = (stages) => {
 
   for (let i = 0; i < stages.length; i++) {
     const stage = stages[i];
+    const stageType = stage.stage_type || stage.stageCategory || stage.category;
 
-    if (!stage.stage_type || !VALID_STAGE_TYPES.includes(stage.stage_type)) {
+    if (stageType && !VALID_STAGE_TYPES.some((t) => t.toLowerCase() === String(stageType).toLowerCase())) {
       return `Stage at index ${i}: invalid "stage_type". Allowed: ${VALID_STAGE_TYPES.join(', ')}`;
     }
-    if (stage.duration_days === undefined || isNaN(stage.duration_days) || stage.duration_days < 0) {
+    const days = stage.duration_days ?? stage.durationDays;
+    if (days !== undefined && (isNaN(days) || Number(days) < 0)) {
       return `Stage at index ${i}: "duration_days" must be a non-negative number.`;
     }
-    if (stage.session_duration_minutes !== undefined && (isNaN(stage.session_duration_minutes) || stage.session_duration_minutes <= 0)) {
+    const mins = stage.session_duration_minutes ?? stage.durationMinutes;
+    if (mins !== undefined && (isNaN(mins) || Number(mins) <= 0)) {
       return `Stage at index ${i}: "session_duration_minutes" must be a positive integer.`;
     }
   }
@@ -28,32 +32,30 @@ const validateStages = (stages) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /api/protocols — Create a new Therapy Protocol (Deep Insert)
+// POST /api/protocols (or /api/admin/packages) — Create a new Therapy Protocol
 // ─────────────────────────────────────────────────────────────────────────────
 const createProtocol = async (req, res) => {
   try {
-    const { name, therapy_type, clinic_id, created_by, stages = [] } = req.body;
+    const {
+      name,
+      therapy_type,
+      targetDosha,
+      description,
+      base_price,
+      clinic_id,
+      created_by,
+      stages = [],
+    } = req.body;
 
-    // Required field validation
-    const missing = [];
-    if (!name?.trim())         missing.push('name');
-    if (!therapy_type?.trim()) missing.push('therapy_type');
-    if (!clinic_id)            missing.push('clinic_id');
-
-    if (missing.length > 0) {
+    if (!name?.trim()) {
       return res.status(400).json({
         success: false,
-        message: `Missing required fields: ${missing.join(', ')}`,
+        message: 'Missing required field: name',
       });
     }
 
-    // Enum validation: therapy_type
-    if (!VALID_THERAPY_TYPES.includes(therapy_type)) {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid therapy_type "${therapy_type}". Allowed: ${VALID_THERAPY_TYPES.join(', ')}`,
-      });
-    }
+    const resolvedClinicId = clinic_id || req.user?.clinic_id || 1;
+    const resolvedTherapyType = protocolService.sanitizeTherapyType(therapy_type || targetDosha);
 
     // Validate nested stages if provided
     if (stages.length > 0) {
@@ -65,9 +67,11 @@ const createProtocol = async (req, res) => {
 
     const newProtocol = await protocolService.createProtocol({
       name: name.trim(),
-      therapy_type,
-      clinic_id: parseInt(clinic_id, 10),
-      created_by: created_by || null,
+      therapy_type: resolvedTherapyType,
+      description: description?.trim() || undefined,
+      base_price: base_price !== undefined ? parseFloat(base_price) : undefined,
+      clinic_id: parseInt(resolvedClinicId, 10),
+      created_by: created_by || req.user?.id || null,
       stages,
     });
 
@@ -75,6 +79,7 @@ const createProtocol = async (req, res) => {
       success: true,
       message: 'Therapy Protocol created successfully.',
       data: newProtocol,
+      ...newProtocol,
     });
   } catch (err) {
     if (err.code === '23503') {
@@ -90,21 +95,15 @@ const createProtocol = async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/protocols — List all protocols with optional filters
-// Query params: ?clinic_id=1  &  ?therapy_type=Vamana  &  ?is_active=true
 // ─────────────────────────────────────────────────────────────────────────────
 const getAllProtocols = async (req, res) => {
   try {
     const { clinic_id, therapy_type, is_active } = req.query;
 
-    if (therapy_type && !VALID_THERAPY_TYPES.includes(therapy_type)) {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid therapy_type filter. Allowed: ${VALID_THERAPY_TYPES.join(', ')}`,
-      });
-    }
+    const resolvedClinicId = clinic_id || req.user?.clinic_id;
 
     const protocols = await protocolService.getAllProtocols({
-      clinic_id: clinic_id ? parseInt(clinic_id, 10) : undefined,
+      clinic_id: resolvedClinicId ? parseInt(resolvedClinicId, 10) : undefined,
       therapy_type,
       is_active,
     });
@@ -125,7 +124,8 @@ const getAllProtocols = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 const getProtocolById = async (req, res) => {
   try {
-    const protocolId = parseInt(req.params.id, 10);
+    const rawId = req.params.id.replace(/^PKG-/, '');
+    const protocolId = parseInt(rawId, 10);
 
     if (isNaN(protocolId)) {
       return res.status(400).json({ success: false, message: 'Invalid protocol ID.' });
@@ -137,7 +137,7 @@ const getProtocolById = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Therapy Protocol not found.' });
     }
 
-    return res.status(200).json({ success: true, data: protocol });
+    return res.status(200).json({ success: true, data: protocol, ...protocol });
   } catch (err) {
     console.error('[getProtocolById]', err);
     return res.status(500).json({ success: false, message: 'Internal server error.' });
@@ -149,24 +149,20 @@ const getProtocolById = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 const updateProtocol = async (req, res) => {
   try {
-    const protocolId = parseInt(req.params.id, 10);
+    const rawId = req.params.id.replace(/^PKG-/, '');
+    const protocolId = parseInt(rawId, 10);
 
     if (isNaN(protocolId)) {
       return res.status(400).json({ success: false, message: 'Invalid protocol ID.' });
     }
 
-    const { name, therapy_type, is_active, stages } = req.body;
+    const { name, therapy_type, targetDosha, description, base_price, is_active, stages } = req.body;
 
-    // Validate therapy_type if provided
-    if (therapy_type && !VALID_THERAPY_TYPES.includes(therapy_type)) {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid therapy_type. Allowed: ${VALID_THERAPY_TYPES.join(', ')}`,
-      });
-    }
+    const resolvedTherapyType = therapy_type || targetDosha
+      ? protocolService.sanitizeTherapyType(therapy_type || targetDosha)
+      : undefined;
 
-    // Validate stages if provided
-    if (stages !== undefined) {
+    if (stages && Array.isArray(stages)) {
       const stageError = validateStages(stages);
       if (stageError) {
         return res.status(400).json({ success: false, message: stageError });
@@ -174,8 +170,10 @@ const updateProtocol = async (req, res) => {
     }
 
     const updated = await protocolService.updateProtocol(protocolId, {
-      name: name?.trim(),
-      therapy_type,
+      name,
+      therapy_type: resolvedTherapyType,
+      description,
+      base_price,
       is_active,
       stages,
     });
@@ -184,6 +182,7 @@ const updateProtocol = async (req, res) => {
       success: true,
       message: 'Therapy Protocol updated successfully.',
       data: updated,
+      ...updated,
     });
   } catch (err) {
     if (err.statusCode === 404) {
@@ -195,11 +194,12 @@ const updateProtocol = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DELETE /api/protocols/:id — Soft-delete (sets is_active = FALSE)
+// DELETE /api/protocols/:id — Soft-delete protocol (sets is_active = false)
 // ─────────────────────────────────────────────────────────────────────────────
 const deleteProtocol = async (req, res) => {
   try {
-    const protocolId = parseInt(req.params.id, 10);
+    const rawId = req.params.id.replace(/^PKG-/, '');
+    const protocolId = parseInt(rawId, 10);
 
     if (isNaN(protocolId)) {
       return res.status(400).json({ success: false, message: 'Invalid protocol ID.' });
@@ -209,7 +209,7 @@ const deleteProtocol = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: 'Therapy Protocol deactivated (soft-deleted) successfully.',
+      message: 'Therapy Protocol deactivated successfully.',
       data: deleted,
     });
   } catch (err) {

@@ -156,12 +156,13 @@ CREATE TABLE IF NOT EXISTS equipment (
 -- 4. THERAPY PROTOCOL / TEMPLATES & PRAKRITI QUESTION BANK
 -- ==============================================================================
 
--- 4.1 Therapy Packages (Master Templates)
 CREATE TABLE IF NOT EXISTS therapy_packages (
     id SERIAL PRIMARY KEY,
     clinic_id INT NOT NULL REFERENCES clinics(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
     therapy_type VARCHAR(50) NOT NULL CHECK (therapy_type IN ('Vamana', 'Virechana', 'Basti', 'Nasya', 'Raktamokshana')),
+    description TEXT,
+    base_price NUMERIC(10,2),
     created_by UUID REFERENCES users(id) ON DELETE SET NULL,
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
