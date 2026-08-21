@@ -105,6 +105,34 @@ async function seedDatabase() {
       VALUES ($1, 'Virechana');
     `, [therapist2Id]);
 
+    // Seed Weekly Shifts for ALL Therapists (Mon-Fri 9-18, Sat 9-14, Sun off)
+    console.log('⏰ Inserting default weekly shifts for therapists...');
+    const allTherapistsRes = await client.query("SELECT id FROM users WHERE role = 'therapist'");
+    for (const t of allTherapistsRes.rows) {
+      const tId = t.id;
+      await client.query('DELETE FROM therapist_weekly_shifts WHERE therapist_id = $1', [tId]);
+
+      // Sunday (0): off
+      await client.query(`
+        INSERT INTO therapist_weekly_shifts (therapist_id, day_of_week, start_time, end_time, is_working)
+        VALUES ($1, 0, '09:00:00', '18:00:00', false);
+      `, [tId]);
+
+      // Monday (1) to Friday (5): 09:00 - 18:00
+      for (let day = 1; day <= 5; day++) {
+        await client.query(`
+          INSERT INTO therapist_weekly_shifts (therapist_id, day_of_week, start_time, end_time, is_working)
+          VALUES ($1, $2, '09:00:00', '18:00:00', true);
+        `, [tId, day]);
+      }
+
+      // Saturday (6): 09:00 - 14:00
+      await client.query(`
+        INSERT INTO therapist_weekly_shifts (therapist_id, day_of_week, start_time, end_time, is_working)
+        VALUES ($1, 6, '09:00:00', '14:00:00', true);
+      `, [tId]);
+    }
+
     // Solo Practitioner
     const soloRes = await client.query(`
       INSERT INTO users (name, email, phone, password_hash, role, gender, clinic_id, is_active)
