@@ -1,11 +1,204 @@
-const { query } = require('../../config/db');
+const { pool, query } = require('../../config/db');
 
-async function listPackages(clinicId) {
-  const result = await query(
-    `SELECT id, name, therapy_type FROM therapy_packages WHERE clinic_id = $1 AND is_active = true ORDER BY name ASC`,
-    [clinicId]
+const VALID_THERAPY_TYPES = ['Vamana', 'Virechana', 'Basti', 'Nasya', 'Raktamokshana'];
+const VALID_STAGE_TYPES = ['Poorvakarma', 'Pradhanakarma', 'Paschatkarma'];
+
+function sanitizeTherapyType(type) {
+  if (!type) return 'Virechana';
+  const matched = VALID_THERAPY_TYPES.find(
+    (t) => t.toLowerCase() === String(type).trim().toLowerCase()
   );
-  return result.rows;
+  if (matched) return matched;
+  // If targetDosha or custom string passed, provide safe fallback matching check constraint
+  const lower = String(type).toLowerCase();
+  if (lower.includes('basti')) return 'Basti';
+  if (lower.includes('nasya')) return 'Nasya';
+  if (lower.includes('vamana')) return 'Vamana';
+  if (lower.includes('rakta')) return 'Raktamokshana';
+  return 'Virechana';
 }
 
-module.exports = { listPackages };
+function sanitizeStageType(type, index = 0) {
+  if (!type) {
+    return VALID_STAGE_TYPES[index] || 'Pradhanakarma';
+  }
+  const matched = VALID_STAGE_TYPES.find(
+    (t) => t.toLowerCase() === String(type).trim().toLowerCase()
+  );
+  if (matched) return matched;
+  const lower = String(type).toLowerCase();
+  if (lower.includes('poorva')) return 'Poorvakarma';
+  if (lower.includes('paschat')) return 'Paschatkarma';
+  return 'Pradhanakarma';
+}
+
+/**
+ * List therapy packages with nested stages for doctor view and plan builder.
+ */
+async function listPackages(clinicId) {
+  const packagesRes = await query(
+    `SELECT id, name, therapy_type, is_active, created_at
+     FROM therapy_packages 
+     WHERE clinic_id = $1 AND is_active = true 
+     ORDER BY name ASC`,
+    [clinicId]
+  );
+
+  if (packagesRes.rows.length === 0) {
+    return [];
+  }
+
+  const packageIds = packagesRes.rows.map((p) => p.id);
+  const stagesRes = await query(
+    `SELECT 
+       id, package_id, stage_type, sequence_order, day_offset, 
+       duration_days, session_duration_minutes, pre_instructions, 
+       post_instructions, base_diet_framework
+     FROM therapy_package_stages
+     WHERE package_id = ANY($1::int[])
+     ORDER BY package_id, sequence_order ASC`,
+    [packageIds]
+  );
+
+  const stagesByPkg = {};
+  for (const stage of stagesRes.rows) {
+    if (!stagesByPkg[stage.package_id]) {
+      stagesByPkg[stage.package_id] = [];
+    }
+    stagesByPkg[stage.package_id].push({
+      id: stage.id,
+      name: `${stage.stage_type} Stage`,
+      category: stage.stage_type,
+      stage_type: stage.stage_type,
+      sequenceOrder: stage.sequence_order,
+      sequence_order: stage.sequence_order,
+      dayOffset: stage.day_offset,
+      day_offset: stage.day_offset,
+      durationDays: stage.duration_days,
+      duration_days: stage.duration_days,
+      durationMinutes: stage.session_duration_minutes,
+      session_duration_minutes: stage.session_duration_minutes,
+      preInstructions: stage.pre_instructions || '',
+      pre_instructions: stage.pre_instructions || '',
+      postInstructions: stage.post_instructions || '',
+      post_instructions: stage.post_instructions || '',
+      baseDietGuidelines: stage.base_diet_framework ? JSON.stringify(stage.base_diet_framework) : '',
+      base_diet_framework: stage.base_diet_framework,
+    });
+  }
+
+  return packagesRes.rows.map((pkg) => {
+    const pkgStages = stagesByPkg[pkg.id] || [];
+    const totalDays = pkgStages.reduce((acc, s) => acc + (s.duration_days || 1), 0) || 7;
+    return {
+      id: pkg.id,
+      name: pkg.name,
+      therapy_type: pkg.therapy_type,
+      targetDosha: pkg.therapy_type,
+      description: `Standardized clinical protocol for ${pkg.name}.`,
+      durationDays: totalDays,
+      duration_days: totalDays,
+      isStandard: true,
+      is_active: pkg.is_active,
+      stages: pkgStages,
+    };
+  });
+}
+
+/**
+ * Create a custom/standard therapy package with nested stages.
+ */
+async function createPackage(doctorUser, packageData) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const name = packageData.name || 'Custom Therapy Protocol';
+    const therapyType = sanitizeTherapyType(packageData.therapy_type || packageData.targetDosha);
+
+    const pkgRes = await client.query(
+      `INSERT INTO therapy_packages (clinic_id, name, therapy_type, created_by, is_active)
+       VALUES ($1, $2, $3, $4, true)
+       RETURNING id, name, therapy_type, is_active, created_at`,
+      [doctorUser.clinic_id, name, therapyType, doctorUser.id]
+    );
+    const newPkg = pkgRes.rows[0];
+
+    const inputStages = Array.isArray(packageData.stages) && packageData.stages.length > 0
+      ? packageData.stages
+      : [
+          { stage_type: 'Poorvakarma', duration_days: 2, session_duration_minutes: 45 },
+          { stage_type: 'Pradhanakarma', duration_days: 4, session_duration_minutes: 60 },
+          { stage_type: 'Paschatkarma', duration_days: 1, session_duration_minutes: 30 },
+        ];
+
+    const createdStages = [];
+    let runningOffset = 1;
+
+    for (let i = 0; i < inputStages.length; i++) {
+      const s = inputStages[i];
+      const stageType = sanitizeStageType(s.stage_type || s.category || s.name, i);
+      const sequenceOrder = s.sequence_order || s.sequenceOrder || (i + 1);
+      const durationDays = parseInt(s.duration_days || s.durationDays || 1, 10);
+      const sessionDurationMinutes = parseInt(s.session_duration_minutes || s.durationMinutes || 60, 10);
+      const dayOffset = s.day_offset !== undefined ? s.day_offset : (s.dayOffset !== undefined ? s.dayOffset : runningOffset);
+      const preInstructions = s.pre_instructions || s.preInstructions || null;
+      const postInstructions = s.post_instructions || s.postInstructions || null;
+      const baseDiet = s.base_diet_framework || (s.baseDietGuidelines ? { guidelines: s.baseDietGuidelines } : null);
+
+      const stageRes = await client.query(
+        `INSERT INTO therapy_package_stages (
+           package_id, stage_type, sequence_order, day_offset, 
+           duration_days, session_duration_minutes, pre_instructions, 
+           post_instructions, base_diet_framework
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         RETURNING id, stage_type, sequence_order, day_offset, duration_days, session_duration_minutes, pre_instructions, post_instructions`,
+        [
+          newPkg.id,
+          stageType,
+          sequenceOrder,
+          dayOffset,
+          durationDays,
+          sessionDurationMinutes,
+          preInstructions,
+          postInstructions,
+          baseDiet,
+        ]
+      );
+      createdStages.push(stageRes.rows[0]);
+      runningOffset += durationDays;
+    }
+
+    await client.query('COMMIT');
+
+    const totalDays = createdStages.reduce((acc, s) => acc + s.duration_days, 0);
+
+    return {
+      id: newPkg.id,
+      name: newPkg.name,
+      therapy_type: newPkg.therapy_type,
+      targetDosha: newPkg.therapy_type,
+      durationDays: totalDays,
+      isStandard: false,
+      stages: createdStages.map((s) => ({
+        id: s.id,
+        name: `${s.stage_type} Stage`,
+        category: s.stage_type,
+        sequenceOrder: s.sequence_order,
+        dayOffset: s.day_offset,
+        durationDays: s.duration_days,
+        durationMinutes: s.session_duration_minutes,
+        preInstructions: s.pre_instructions || '',
+        postInstructions: s.post_instructions || '',
+      })),
+    };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+module.exports = { listPackages, createPackage };

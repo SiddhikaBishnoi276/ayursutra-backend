@@ -350,7 +350,7 @@ async function rescheduleSession(sessionId, rescheduleData, dbClient = null) {
 async function cancelSession(sessionId, dbClient = null) {
   const runner = dbClient || pool;
   const res = await runner.query(
-    `UPDATE sessions SET status = 'cancelled' WHERE id = $1 RETURNING *`,
+    `UPDATE sessions SET status = 'cancelled', therapist_id = NULL, room_id = NULL WHERE id = $1 RETURNING *`,
     [sessionId]
   );
   if (res.rows.length === 0) throw new Error(`Session with ID ${sessionId} not found`);
