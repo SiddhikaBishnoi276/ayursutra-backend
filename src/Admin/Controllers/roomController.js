@@ -92,7 +92,8 @@ const getRoomOccupancy = async (req, res) => {
     // Summary count of room statuses
     const summary = occupancy.reduce(
       (acc, room) => {
-        const key = room.occupancy_status.toLowerCase();
+        const statusKey = (room.status || room.occupancy_status || 'available').toLowerCase();
+        const key = statusKey === 'under maintenance' || statusKey === 'under_maintenance' ? 'maintenance' : statusKey;
         acc[key] = (acc[key] || 0) + 1;
         return acc;
       },
@@ -111,4 +112,28 @@ const getRoomOccupancy = async (req, res) => {
   }
 };
 
-module.exports = { createRoom, getAllRooms, getRoomOccupancy };
+const updateRoomStatus = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+    
+    if (!status) {
+      return res.status(400).json({ success: false, message: 'Status is required' });
+    }
+
+    const updatedRoom = await roomService.updateRoomStatus(id, status);
+    res.status(200).json({ success: true, data: updatedRoom });
+  } catch (err) {
+    if (err.message === 'Room not found') {
+      return res.status(404).json({ success: false, message: err.message });
+    }
+    next(err);
+  }
+};
+
+module.exports = {
+  createRoom,
+  getAllRooms,
+  getRoomOccupancy,
+  updateRoomStatus
+};

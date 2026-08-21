@@ -150,9 +150,10 @@ const getAllStaff = async ({ role, status, clinic_id }) => {
     }
 
     return {
-      id: row.id,
+      id: `S-${row.id.substring(0, 6)}`,
+      _raw_id: row.id,
       role: row.role,
-      name: row.name,
+      fullName: row.name,
       email: row.email,
       phone: row.phone,
       gender: row.gender,
@@ -162,8 +163,8 @@ const getAllStaff = async ({ role, status, clinic_id }) => {
       created_at: row.created_at,
       // Role-specific
       qualification: row.qualification || undefined,
-      registration_number: row.registration_number || undefined,
-      specializations: row.specializations?.filter(Boolean) || [],
+      registrationNum: row.registration_number || undefined,
+      specialization: row.specializations?.filter(Boolean).join(', ') || undefined,
     };
   });
 

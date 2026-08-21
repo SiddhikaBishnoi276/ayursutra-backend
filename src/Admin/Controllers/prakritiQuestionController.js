@@ -1,12 +1,5 @@
 const questionService = require('../Services/prakritiQuestionService');
 
-/**
- * ─────────────────────────────────────────────────────────────────────────────
- * PRAKRITI QUESTION CONTROLLER (Admin Module)
- * Clinical Diagnostic Questionnaire Management
- * ─────────────────────────────────────────────────────────────────────────────
- */
-
 // Helper to validate options array
 const validateOptions = (options) => {
   if (!Array.isArray(options)) {
@@ -15,30 +8,25 @@ const validateOptions = (options) => {
 
   for (let i = 0; i < options.length; i++) {
     const opt = options[i];
-    if (!opt.option_text || typeof opt.option_text !== 'string' || !opt.option_text.trim()) {
-      return `Option at index ${i}: "option_text" is required and cannot be empty.`;
+    if (!opt.text || typeof opt.text !== 'string' || !opt.text.trim()) {
+      return `Option at index ${i}: "text" is required and cannot be empty.`;
     }
   }
 
   return null;
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /api/prakriti-questions — Add a new Diagnostic Question with options
-// ─────────────────────────────────────────────────────────────────────────────
-const createQuestion = async (req, res) => {
+const createQuestion = async (req, res, next) => {
   try {
-    const { question_text, is_active = true, options = [] } = req.body;
+    const { questionText, attribute, is_active = true, options = [] } = req.body;
 
-    // Required field validation
-    if (!question_text || typeof question_text !== 'string' || !question_text.trim()) {
+    if (!questionText || typeof questionText !== 'string' || !questionText.trim()) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required field: "question_text" is required.',
+        message: 'Missing required field: "questionText" is required.',
       });
     }
 
-    // Validate options if provided
     if (options.length > 0) {
       const optErr = validateOptions(options);
       if (optErr) {
@@ -47,7 +35,8 @@ const createQuestion = async (req, res) => {
     }
 
     const newQuestion = await questionService.createQuestion({
-      question_text: question_text.trim(),
+      question_text: questionText.trim(),
+      attribute: attribute ? attribute.trim() : null,
       is_active: is_active !== false,
       options,
     });
@@ -59,22 +48,14 @@ const createQuestion = async (req, res) => {
     });
   } catch (err) {
     console.error('[createQuestion]', err);
-    return res.status(500).json({ success: false, message: 'Internal server error.' });
+    next(err);
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/prakriti-questions — List all questions with filters
-// Query params: ?is_active=true  &  ?search=frame
-// ─────────────────────────────────────────────────────────────────────────────
-const getAllQuestions = async (req, res) => {
+const getAllQuestions = async (req, res, next) => {
   try {
     const { is_active, search } = req.query;
-
-    const questions = await questionService.getAllQuestions({
-      is_active,
-      search,
-    });
+    const questions = await questionService.getAllQuestions({ is_active, search });
 
     return res.status(200).json({
       success: true,
@@ -83,49 +64,48 @@ const getAllQuestions = async (req, res) => {
     });
   } catch (err) {
     console.error('[getAllQuestions]', err);
-    return res.status(500).json({ success: false, message: 'Internal server error.' });
+    next(err);
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/prakriti-questions/:id — Retrieve single question with options
-// ─────────────────────────────────────────────────────────────────────────────
-const getQuestionById = async (req, res) => {
+const getQuestionById = async (req, res, next) => {
   try {
-    const questionId = parseInt(req.params.id, 10);
+    const { id } = req.params;
+    const rawId = parseInt(id.replace('Q-', ''), 10);
 
-    if (isNaN(questionId)) {
+    if (isNaN(rawId)) {
       return res.status(400).json({ success: false, message: 'Invalid question ID.' });
     }
 
-    const question = await questionService.getQuestionById(questionId);
+    const question = await questionService.getQuestionById(rawId);
 
     if (!question) {
       return res.status(404).json({
         success: false,
-        message: `Prakriti diagnostic question with ID ${questionId} not found.`,
+        message: `Prakriti diagnostic question with ID ${rawId} not found.`,
       });
     }
 
-    return res.status(200).json({ success: true, data: question });
+    return res.status(200).json({
+      success: true,
+      data: question,
+    });
   } catch (err) {
     console.error('[getQuestionById]', err);
-    return res.status(500).json({ success: false, message: 'Internal server error.' });
+    next(err);
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PUT / PATCH /api/prakriti-questions/:id — Update question & replace/update options
-// ─────────────────────────────────────────────────────────────────────────────
-const updateQuestion = async (req, res) => {
+const updateQuestion = async (req, res, next) => {
   try {
-    const questionId = parseInt(req.params.id, 10);
+    const { id } = req.params;
+    const rawId = parseInt(id.replace('Q-', ''), 10);
 
-    if (isNaN(questionId)) {
+    if (isNaN(rawId)) {
       return res.status(400).json({ success: false, message: 'Invalid question ID.' });
     }
 
-    const { question_text, is_active, options } = req.body;
+    const { questionText, attribute, is_active, options } = req.body;
 
     if (options !== undefined) {
       const optErr = validateOptions(options);
@@ -134,8 +114,9 @@ const updateQuestion = async (req, res) => {
       }
     }
 
-    const updated = await questionService.updateQuestion(questionId, {
-      question_text: question_text !== undefined ? question_text.trim() : undefined,
+    const updated = await questionService.updateQuestion(rawId, {
+      question_text: questionText !== undefined ? questionText.trim() : undefined,
+      attribute: attribute !== undefined ? attribute.trim() : undefined,
       is_active,
       options,
     });
@@ -150,33 +131,30 @@ const updateQuestion = async (req, res) => {
       return res.status(404).json({ success: false, message: err.message });
     }
     console.error('[updateQuestion]', err);
-    return res.status(500).json({ success: false, message: 'Internal server error.' });
+    next(err);
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DELETE /api/prakriti-questions/:id — Remove or Deactivate Question
-// Query param: ?permanent=true (optional, default is soft deactivate is_active=false)
-// ─────────────────────────────────────────────────────────────────────────────
-const deleteQuestion = async (req, res) => {
+const deleteQuestion = async (req, res, next) => {
   try {
-    const questionId = parseInt(req.params.id, 10);
+    const { id } = req.params;
+    const rawId = parseInt(id.replace('Q-', ''), 10);
 
-    if (isNaN(questionId)) {
+    if (isNaN(rawId)) {
       return res.status(400).json({ success: false, message: 'Invalid question ID.' });
     }
 
-    const isPermanent = req.query.permanent === 'true';
+    const { permanent } = req.query;
 
-    const result = await questionService.deleteQuestion(questionId, {
-      permanent: isPermanent,
+    const result = await questionService.deleteQuestion(rawId, {
+      permanent: permanent === 'true',
     });
 
     return res.status(200).json({
       success: true,
-      message: isPermanent
-        ? 'Prakriti diagnostic question permanently deleted.'
-        : 'Prakriti diagnostic question deactivated (removed from active pool).',
+      message: permanent 
+        ? 'Prakriti diagnostic question permanently deleted.' 
+        : 'Prakriti diagnostic question deactivated successfully.',
       data: result,
     });
   } catch (err) {
@@ -184,37 +162,37 @@ const deleteQuestion = async (req, res) => {
       return res.status(404).json({ success: false, message: err.message });
     }
     console.error('[deleteQuestion]', err);
-    return res.status(500).json({ success: false, message: 'Internal server error.' });
+    next(err);
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /api/prakriti-questions/:id/options — Add an option to an existing question
-// ─────────────────────────────────────────────────────────────────────────────
-const addOption = async (req, res) => {
+const addOption = async (req, res, next) => {
   try {
-    const questionId = parseInt(req.params.id, 10);
-    const { option_text, dosha_weight } = req.body;
+    const { id } = req.params;
+    const rawId = parseInt(id.replace('Q-', ''), 10);
+    const { text, vata, pitta, kapha } = req.body;
 
-    if (isNaN(questionId)) {
+    if (isNaN(rawId)) {
       return res.status(400).json({ success: false, message: 'Invalid question ID.' });
     }
 
-    if (!option_text || !option_text.trim()) {
+    if (!text || typeof text !== 'string' || !text.trim()) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required field: "option_text" is required.',
+        message: 'Missing required field: "text" is required.',
       });
     }
 
-    const newOption = await questionService.addOption(questionId, {
-      option_text: option_text.trim(),
-      dosha_weight: dosha_weight || {},
+    const dosha_weight = { vata: vata || 0, pitta: pitta || 0, kapha: kapha || 0 };
+
+    const newOption = await questionService.addOption(rawId, {
+      option_text: text.trim(),
+      dosha_weight,
     });
 
     return res.status(201).json({
       success: true,
-      message: 'Question option added successfully.',
+      message: 'Option added successfully.',
       data: newOption,
     });
   } catch (err) {
@@ -222,35 +200,33 @@ const addOption = async (req, res) => {
       return res.status(404).json({ success: false, message: err.message });
     }
     console.error('[addOption]', err);
-    return res.status(500).json({ success: false, message: 'Internal server error.' });
+    next(err);
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DELETE /api/prakriti-questions/:id/options/:optionId — Remove an option
-// ─────────────────────────────────────────────────────────────────────────────
-const removeOption = async (req, res) => {
+const removeOption = async (req, res, next) => {
   try {
-    const questionId = parseInt(req.params.id, 10);
-    const optionId = parseInt(req.params.optionId, 10);
+    const { id, optionId } = req.params;
+    const rawId = parseInt(id.replace('Q-', ''), 10);
+    const optId = parseInt(optionId, 10);
 
-    if (isNaN(questionId) || isNaN(optionId)) {
+    if (isNaN(rawId) || isNaN(optId)) {
       return res.status(400).json({ success: false, message: 'Invalid question or option ID.' });
     }
 
-    const deleted = await questionService.removeOption(questionId, optionId);
+    const removed = await questionService.removeOption(rawId, optId);
 
     return res.status(200).json({
       success: true,
-      message: 'Question option removed successfully.',
-      data: deleted,
+      message: 'Option removed successfully.',
+      data: removed,
     });
   } catch (err) {
     if (err.statusCode === 404) {
       return res.status(404).json({ success: false, message: err.message });
     }
     console.error('[removeOption]', err);
-    return res.status(500).json({ success: false, message: 'Internal server error.' });
+    next(err);
   }
 };
 

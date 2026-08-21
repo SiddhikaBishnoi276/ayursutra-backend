@@ -168,6 +168,7 @@ CREATE TABLE IF NOT EXISTS therapy_package_stages (
 -- 4.3 Prakriti Questions
 CREATE TABLE IF NOT EXISTS prakriti_questions (
     id SERIAL PRIMARY KEY,
+    attribute VARCHAR(255),
     question_text TEXT NOT NULL,
     is_active BOOLEAN DEFAULT TRUE
 );

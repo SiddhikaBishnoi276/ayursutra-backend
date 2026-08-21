@@ -104,19 +104,27 @@ const getAllProtocols = async ({ clinic_id, therapy_type, is_active }) => {
        tp.therapy_type,
        tp.clinic_id,
        tp.created_by,
+       u.name AS author_name,
        tp.is_active,
        tp.created_at,
        COUNT(tps.id)::INT AS total_stages,
        COALESCE(SUM(tps.duration_days), 0)::INT AS total_duration_days
      FROM therapy_packages tp
      LEFT JOIN therapy_package_stages tps ON tps.package_id = tp.id
+     LEFT JOIN users u ON tp.created_by = u.id
      ${whereClause}
-     GROUP BY tp.id
+     GROUP BY tp.id, u.name
      ORDER BY tp.created_at DESC`,
     params
   );
 
-  return result.rows;
+  return result.rows.map(row => ({
+    ...row,
+    id: `PKG-${row.id.toString().padStart(3, '0')}`,
+    _raw_id: row.id,
+    authorName: row.author_name || 'System',
+    status: row.is_active ? 'Active' : 'Inactive',
+  }));
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -125,9 +133,10 @@ const getAllProtocols = async ({ clinic_id, therapy_type, is_active }) => {
 const getProtocolById = async (id) => {
   // 1. Fetch parent package
   const packageResult = await pool.query(
-    `SELECT id, name, therapy_type, clinic_id, created_by, is_active, created_at
-     FROM therapy_packages
-     WHERE id = $1`,
+    `SELECT tp.id, tp.name, tp.therapy_type, tp.clinic_id, tp.created_by, tp.is_active, tp.created_at, u.name AS author_name
+     FROM therapy_packages tp
+     LEFT JOIN users u ON tp.created_by = u.id
+     WHERE tp.id = $1`,
     [id]
   );
 
@@ -154,6 +163,10 @@ const getProtocolById = async (id) => {
 
   return {
     ...protocol,
+    id: `PKG-${protocol.id.toString().padStart(3, '0')}`,
+    _raw_id: protocol.id,
+    authorName: protocol.author_name || 'System',
+    status: protocol.is_active ? 'Active' : 'Inactive',
     total_stages: stagesResult.rows.length,
     total_duration_days: totalDurationDays,
     stages: stagesResult.rows,

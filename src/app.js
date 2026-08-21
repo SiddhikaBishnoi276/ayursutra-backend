@@ -8,6 +8,10 @@ const staffRoutes = require('./Admin/Routes/staffRoutes');
 const roomRoutes = require('./Admin/Routes/roomRoutes');
 const protocolRoutes = require('./Admin/Routes/protocolRoutes');
 const prakritiQuestionRoutes = require('./Admin/Routes/prakritiQuestionRoutes');
+const dashboardRoutes = require('./Admin/Routes/dashboardRoutes');
+
+// Notifications
+const notificationRoutes = require('./Notifications/Routes/notificationRoutes');
 
 // Therapist & Session Routes
 const therapistRoutes = require('./Therapist/Routes/therapistRoutes');
@@ -36,6 +40,8 @@ app.use('/api/staff', staffRoutes);
 app.use('/api/rooms', roomRoutes);
 app.use('/api/protocols', protocolRoutes);
 app.use('/api/prakriti-questions', prakritiQuestionRoutes);
+app.use('/api/admin/dashboard', dashboardRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // ── Therapist & Session Routes ────────────────────────────────────────────────
 app.use('/api/therapist', therapistRoutes);
