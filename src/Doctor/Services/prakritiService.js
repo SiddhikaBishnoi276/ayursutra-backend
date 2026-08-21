@@ -38,8 +38,19 @@ function determineConfirmedDosha(scores) {
   return `${label(topDosha)}-dominant`;
 }
 
-async function submitAssessment(patientId, doctorUser, { answers = [], clinical_observation, confirmed_dosha }) {
-  let scores = { vata: 0, pitta: 0, kapha: 0 };
+async function submitAssessment(patientId, doctorUser, {
+  answers = [],
+  clinical_observation,
+  confirmed_dosha,
+  tentative_vata,
+  tentative_pitta,
+  tentative_kapha,
+}) {
+  let scores = {
+    vata: tentative_vata || 0,
+    pitta: tentative_pitta || 0,
+    kapha: tentative_kapha || 0,
+  };
   let finalDosha = confirmed_dosha;
 
   const validAnswers = Array.isArray(answers) ? answers.filter((a) => a && a.option_id) : [];
@@ -51,7 +62,10 @@ async function submitAssessment(patientId, doctorUser, { answers = [], clinical_
         `SELECT id, dosha_weight FROM prakriti_question_options WHERE id = ANY($1::int[])`,
         [optionIds]
       );
-      scores = calculateDoshaScores(optionsResult.rows);
+      const calculated = calculateDoshaScores(optionsResult.rows);
+      if (calculated.vata > 0 || calculated.pitta > 0 || calculated.kapha > 0) {
+        scores = calculated;
+      }
       if (!finalDosha) {
         finalDosha = determineConfirmedDosha(scores);
       }
@@ -76,13 +90,21 @@ async function submitAssessment(patientId, doctorUser, { answers = [], clinical_
     const assessment = assessmentResult.rows[0];
 
     for (const ans of validAnswers) {
-      if (ans.question_id && ans.option_id) {
+      const qId = parseInt(ans.question_id, 10);
+      const optId = parseInt(ans.option_id, 10);
+      if (!isNaN(qId) && !isNaN(optId)) {
         await client.query(
           `INSERT INTO prakriti_assessment_answers (assessment_id, question_id, option_id) VALUES ($1, $2, $3)`,
-          [assessment.id, parseInt(ans.question_id, 10), parseInt(ans.option_id, 10)]
+          [assessment.id, qId, optId]
         );
       }
     }
+
+    // Sync confirmed dosha to patients table
+    await client.query(
+      `UPDATE patients SET diagnosis = COALESCE(diagnosis, $2) WHERE user_id = $1`,
+      [patientId, finalDosha]
+    );
 
     await client.query('COMMIT');
     return assessment;
@@ -93,6 +115,7 @@ async function submitAssessment(patientId, doctorUser, { answers = [], clinical_
     client.release();
   }
 }
+
 
 module.exports = { getActiveQuestions, submitAssessment };
 
