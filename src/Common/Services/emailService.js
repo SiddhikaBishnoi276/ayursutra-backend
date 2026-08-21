@@ -224,11 +224,6 @@ function generatePatientCredentialsHtml({ patientName, email, phone, tempPasswor
         </div>
       </div>
 
-      <!-- CTA Button -->
-      <div class="cta-container">
-        <a href="${portalUrl}" class="cta-button" target="_blank">Access Patient Portal &rarr;</a>
-      </div>
-
       <!-- Security Advisory -->
       <div class="security-note">
         <strong>🔒 Security Advisory:</strong> For your privacy and data protection, please change your temporary password immediately upon your first sign-in under <em>Profile &rarr; Security Settings</em>.
