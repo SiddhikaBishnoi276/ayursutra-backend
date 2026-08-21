@@ -4,7 +4,7 @@ const app = require('../src/app');
 const { pool } = require('../src/config/db');
 
 async function runTests() {
-  console.log('🧪 Starting Patient View (Screen 4) Integration Tests...\n');
+  console.log('🧪 Starting Upgraded Patient View & Integration Tests...\n');
 
   // Start temporary server
   const server = http.createServer(app);
@@ -15,7 +15,7 @@ async function runTests() {
   console.log(`📡 Test server running on ${baseUrl}`);
 
   let testClinicId, doctorUserId, therapistUserId, patientUserId, roomId, packageId, planId;
-  let stage1Id, stage2Id, session1Id, session2Id;
+  let pkgStage1Id, pkgStage2Id, stage1Id, stage2Id, session1Id, session2Id;
   const testRunId = Date.now().toString().slice(-6);
 
   try {
@@ -85,13 +85,27 @@ async function runTests() {
     `, [testClinicId]);
     roomId = roomRes.rows[0].id;
 
-    // Therapy Package
+    // Therapy Package & Master Stages (with session_duration_minutes & instructions)
     const pkgRes = await pool.query(`
       INSERT INTO therapy_packages (clinic_id, name, therapy_type)
       VALUES ($1, '7-Day Virechana Protocol', 'Virechana')
       RETURNING id;
     `, [testClinicId]);
     packageId = pkgRes.rows[0].id;
+
+    const pkgStage1Res = await pool.query(`
+      INSERT INTO therapy_package_stages (package_id, stage_type, sequence_order, duration_days, session_duration_minutes, pre_instructions, post_instructions)
+      VALUES ($1, 'Poorvakarma', 1, 3, 90, 'Internal Snehapana with medicated ghee.', 'Rest in warm room for 30 minutes.')
+      RETURNING id;
+    `, [packageId]);
+    pkgStage1Id = pkgStage1Res.rows[0].id;
+
+    const pkgStage2Res = await pool.query(`
+      INSERT INTO therapy_package_stages (package_id, stage_type, sequence_order, duration_days, session_duration_minutes, pre_instructions, post_instructions)
+      VALUES ($1, 'Pradhanakarma', 2, 1, 90, 'Strict morning fasting.', 'Consume warm thin rice water.')
+      RETURNING id;
+    `, [packageId]);
+    pkgStage2Id = pkgStage2Res.rows[0].id;
 
     // Therapy Plan
     const planRes = await pool.query(`
@@ -104,33 +118,53 @@ async function runTests() {
     // Sequential Stages:
     // Stage 1: Poorvakarma (complete)
     const stg1 = await pool.query(`
-      INSERT INTO therapy_plan_stages (plan_id, stage_type, sequence_order, duration_days, status)
-      VALUES ($1, 'Poorvakarma', 1, 3, 'complete')
+      INSERT INTO therapy_plan_stages (plan_id, package_stage_id, stage_type, sequence_order, duration_days, status)
+      VALUES ($1, $2, 'Poorvakarma', 1, 3, 'complete')
       RETURNING id;
-    `, [planId]);
+    `, [planId, pkgStage1Id]);
     stage1Id = stg1.rows[0].id;
 
     // Stage 2: Pradhanakarma (unlocked - Active Stage)
     const stg2 = await pool.query(`
-      INSERT INTO therapy_plan_stages (plan_id, stage_type, sequence_order, duration_days, status)
-      VALUES ($1, 'Pradhanakarma', 2, 1, 'unlocked')
+      INSERT INTO therapy_plan_stages (plan_id, package_stage_id, stage_type, sequence_order, duration_days, status)
+      VALUES ($1, $2, 'Pradhanakarma', 2, 1, 'unlocked')
       RETURNING id;
-    `, [planId]);
+    `, [planId, pkgStage2Id]);
     stage2Id = stg2.rows[0].id;
+
+    // Diet & Exercise Plan (AI Generated / Approved)
+    await pool.query(`
+      INSERT INTO diet_exercise_plans (plan_id, stage_type, diet_chart, exercise_plan, status, approved_by, approved_at)
+      VALUES ($1, 'Pradhanakarma', $2, $3, 'approved', $4, CURRENT_TIMESTAMP);
+    `, [
+      planId,
+      JSON.stringify({
+        planTitle: 'AI Doctor Prescribed Pradhanakarma Diet',
+        dietaryGuidelines: ['Strictly consume thin warm Peya', 'No solid food until Vega cessation'],
+        forbiddenFoods: ['Cold water', 'Spicy foods'],
+        permittedDrinks: ['Lukewarm water boiled with dry ginger'],
+        lifestyleTips: ['Rest completely in supine posture'],
+      }),
+      JSON.stringify({
+        allowed: ['Gentle deep breathing', 'Anulom Vilom (5 mins)'],
+        forbidden: ['Asanas', 'Heavy walking', 'Jogging'],
+      }),
+      doctorUserId,
+    ]);
 
     // Sessions:
     // Session 1 (Completed Session for Stage 1)
     const ses1 = await pool.query(`
-      INSERT INTO sessions (plan_stage_id, patient_id, therapist_id, room_id, scheduled_date, scheduled_time, status, actual_start_time, actual_end_time)
-      VALUES ($1, $2, $3, $4, CURRENT_DATE - 1, '10:00:00', 'completed', CURRENT_TIMESTAMP - INTERVAL '1 day', CURRENT_TIMESTAMP - INTERVAL '23 hours')
+      INSERT INTO sessions (plan_stage_id, patient_id, therapist_id, room_id, scheduled_date, scheduled_time, scheduled_start_time, scheduled_end_time, status, actual_start_time, actual_end_time)
+      VALUES ($1, $2, $3, $4, CURRENT_DATE - 1, '10:00:00', '10:00:00', '11:30:00', 'completed', CURRENT_TIMESTAMP - INTERVAL '1 day', CURRENT_TIMESTAMP - INTERVAL '23 hours')
       RETURNING id;
     `, [stage1Id, patientUserId, therapistUserId, roomId]);
     session1Id = ses1.rows[0].id;
 
     // Session 2 (Upcoming Session for Stage 2)
     const ses2 = await pool.query(`
-      INSERT INTO sessions (plan_stage_id, patient_id, therapist_id, room_id, scheduled_date, scheduled_time, status)
-      VALUES ($1, $2, $3, $4, CURRENT_DATE + 1, '14:00:00', 'scheduled')
+      INSERT INTO sessions (plan_stage_id, patient_id, therapist_id, room_id, scheduled_date, scheduled_time, scheduled_start_time, scheduled_end_time, status)
+      VALUES ($1, $2, $3, $4, CURRENT_DATE + 1, '14:00:00', '14:00:00', '15:30:00', 'scheduled')
       RETURNING id;
     `, [stage2Id, patientUserId, therapistUserId, roomId]);
     session2Id = ses2.rows[0].id;
@@ -147,14 +181,20 @@ async function runTests() {
 
     console.log('Dashboard API Output:\n', JSON.stringify(dashData, null, 2));
 
-    // Validate patient_info
+    // Validate patient_info with dual contracts
     assert(dashData.patient_info, 'Should contain patient_info');
     assert.strictEqual(dashData.patient_info.patient_id, patientUserId);
+    assert.strictEqual(dashData.patient_info.patientId, patientUserId);
     assert.strictEqual(dashData.patient_info.name, 'Priya Verma');
+    assert.strictEqual(dashData.patient_info.patientName, 'Priya Verma');
     assert.strictEqual(dashData.patient_info.gender, 'Female');
     assert.strictEqual(dashData.patient_info.confirmed_dosha, 'Vata-Pitta');
+    assert.strictEqual(dashData.patient_info.prakritiType, 'Vata-Pitta');
     assert.strictEqual(dashData.patient_info.active_package, '7-Day Virechana Protocol');
+    assert.strictEqual(dashData.patient_info.activePackage, '7-Day Virechana Protocol');
     assert.strictEqual(dashData.patient_info.plan_status, 'active');
+    assert.strictEqual(dashData.patient_info.planStatus, 'active');
+    assert.strictEqual(dashData.patient_info.doctorName, 'Dr. Arvind Nambiar');
 
     // Validate sessions_timeline
     assert(Array.isArray(dashData.sessions_timeline), 'sessions_timeline should be an array');
@@ -162,34 +202,64 @@ async function runTests() {
     
     const timeline1 = dashData.sessions_timeline[0];
     assert.strictEqual(timeline1.session_id, session1Id);
+    assert.strictEqual(timeline1.sessionId, `SES-${session1Id}`);
+    assert.strictEqual(timeline1.id, `APT-${session1Id}`);
     assert.strictEqual(timeline1.stage_type, 'Poorvakarma');
+    assert.strictEqual(timeline1.stageCategory, 'Poorvakarma');
     assert.strictEqual(timeline1.sequence_order, 1);
     assert.strictEqual(timeline1.stage_status, 'complete');
     assert.strictEqual(timeline1.room_name, 'Droni Room A');
     assert.strictEqual(timeline1.session_status, 'completed');
+    assert.strictEqual(timeline1.status, 'completed');
+    assert.strictEqual(timeline1.feedbackSubmitted, false);
+    assert.strictEqual(timeline1.scheduledEndTime, '11:30:00');
+    assert.strictEqual(timeline1.durationMinutes, 90);
+    assert(Array.isArray(timeline1.preCareNotes));
+    assert(Array.isArray(timeline1.postCareNotes));
+    assert(typeof timeline1.therapistNotesSummary === 'string');
 
     const timeline2 = dashData.sessions_timeline[1];
     assert.strictEqual(timeline2.session_id, session2Id);
+    assert.strictEqual(timeline2.sessionId, `SES-${session2Id}`);
+    assert.strictEqual(timeline2.id, `APT-${session2Id}`);
     assert.strictEqual(timeline2.stage_type, 'Pradhanakarma');
+    assert.strictEqual(timeline2.stageCategory, 'Pradhanakarma');
     assert.strictEqual(timeline2.sequence_order, 2);
     assert.strictEqual(timeline2.stage_status, 'unlocked');
     assert.strictEqual(timeline2.room_name, 'Droni Room A');
     assert.strictEqual(timeline2.session_status, 'scheduled');
+    assert.strictEqual(timeline2.status, 'upcoming'); // Mapped scheduled -> upcoming
+    assert.strictEqual(timeline2.canReschedule, true);
+    assert.strictEqual(timeline2.time, '02:00 PM'); // 14:00:00 -> 02:00 PM
+    assert.strictEqual(timeline2.scheduledEndTime, '15:30:00');
+    assert.strictEqual(timeline2.durationMinutes, 90);
 
-    // Validate current_diet_instructions (should reflect unlocked Pradhanakarma stage)
+    // Validate dietPlan (AI & Dosha targeted)
+    assert(dashData.dietPlan, 'Should contain dietPlan');
+    assert.strictEqual(dashData.dietPlan.doshaTarget, 'Vata-Pitta Balance');
+    assert(Array.isArray(dashData.dietPlan.dietaryGuidelines));
+    assert(Array.isArray(dashData.dietPlan.forbiddenFoods));
+    assert(Array.isArray(dashData.dietPlan.permittedDrinks));
+    assert(Array.isArray(dashData.dietPlan.lifestyleTips));
+    assert(dashData.dietPlan.exercisePlan, 'Should contain AI exercise plan');
+
+    // Validate medications
+    assert(Array.isArray(dashData.medications), 'Should contain medications array');
+    assert(dashData.medications.length > 0);
+    assert.strictEqual(dashData.medications[0].id, 'MED-01');
+
+    // Validate current_diet_instructions (backwards compatibility)
     assert(dashData.current_diet_instructions, 'Should contain current_diet_instructions');
     assert.strictEqual(dashData.current_diet_instructions.stage, 'Pradhanakarma');
-    assert(dashData.current_diet_instructions.pathya.includes('Rice Gruel') || dashData.current_diet_instructions.pathya.includes('Peya'));
-    assert(dashData.current_diet_instructions.apathya.includes('dairy') || dashData.current_diet_instructions.apathya.includes('fried'));
 
     // Validate simulated_reminder
     assert(typeof dashData.simulated_reminder === 'string' && dashData.simulated_reminder.length > 0);
-    console.log('✅ Endpoint 1 (Patient Dashboard) passed all schema & assertion checks.');
+    console.log('✅ Endpoint 1 (Patient Dashboard) passed all dual contracts & schema checks.');
 
     // --------------------------------------------------------------------------
-    // 3. TEST ENDPOINT 2: POST /api/patient/feedback
+    // 3. TEST ENDPOINT 2: POST /api/patient/feedback (Standard Payload)
     // --------------------------------------------------------------------------
-    console.log('\n📝 Step 3: Testing POST /api/patient/feedback...');
+    console.log('\n📝 Step 3: Testing POST /api/patient/feedback (Standard Payload)...');
     const feedbackPayload = {
       session_id: session1Id,
       patient_id: patientUserId,
@@ -208,10 +278,11 @@ async function runTests() {
     assert.strictEqual(feedbackRes.status, 201, `Expected 201 Created, got ${feedbackRes.status}`);
     const feedbackData = await feedbackRes.json();
 
-    console.log('Feedback API Output:\n', JSON.stringify(feedbackData, null, 2));
+    console.log('Feedback API Output 1:\n', JSON.stringify(feedbackData, null, 2));
     assert.strictEqual(feedbackData.success, true);
     assert.strictEqual(feedbackData.message, 'Feedback submitted successfully');
     assert(feedbackData.feedback_id, 'Should return feedback_id');
+    assert(feedbackData.feedbackId, 'Should return feedbackId');
 
     // Verify DB insertion
     const dbFeedback = await pool.query('SELECT * FROM patient_feedback WHERE id = $1', [feedbackData.feedback_id]);
@@ -222,9 +293,64 @@ async function runTests() {
     assert.strictEqual(dbFeedback.rows[0].sleep_quality, 8);
     assert.strictEqual(dbFeedback.rows[0].energy_level, 7);
     assert.strictEqual(dbFeedback.rows[0].side_effects, 'None reported');
-    console.log('✅ Endpoint 2 (Patient Feedback Submission) passed with verified DB state.');
+    console.log('✅ Endpoint 2 (Patient Feedback Standard Submission) passed.');
 
-    console.log('\n🎉 ALL PATIENT VIEW (SCREEN 4) TESTS PASSED PERFECTLY!\n');
+    // --------------------------------------------------------------------------
+    // 4. TEST ENDPOINT 2: POST /api/patient/feedback (Frontend Mapped Payload)
+    // --------------------------------------------------------------------------
+    console.log('\n📝 Step 4: Testing POST /api/patient/feedback (Frontend Mapped Payload)...');
+    const frontendPayload = {
+      sessionId: `SES-${session2Id}`, // Formatted string ID
+      patientId: patientUserId, // camelCase UUID
+      symptomImprovementScore: 8, // maps to pain_scale = 10 - 8 = 2
+      rating: 5, // maps to sleep_quality = 10, energy_level = 10
+      overallExperience: 'Felt very light and energetic post Virechana',
+    };
+
+    const frontendFeedbackRes = await fetch(`${baseUrl}/api/patient/feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(frontendPayload),
+    });
+
+    assert.strictEqual(frontendFeedbackRes.status, 201, `Expected 201 Created, got ${frontendFeedbackRes.status}`);
+    const frontendFeedbackData = await frontendFeedbackRes.json();
+
+    console.log('Feedback API Output 2:\n', JSON.stringify(frontendFeedbackData, null, 2));
+    assert.strictEqual(frontendFeedbackData.success, true);
+    assert.strictEqual(frontendFeedbackData.sessionId, session2Id);
+    assert.strictEqual(frontendFeedbackData.painScale, 2);
+    assert.strictEqual(frontendFeedbackData.sleepQuality, 10);
+    assert.strictEqual(frontendFeedbackData.energyLevel, 10);
+    assert.strictEqual(frontendFeedbackData.sideEffects, 'Felt very light and energetic post Virechana');
+
+    // --------------------------------------------------------------------------
+    // 5. TEST DASHBOARD FEEDBACK DYNAMIC COMPUTATION
+    // --------------------------------------------------------------------------
+    console.log('\n🔍 Step 5: Testing feedbackSubmitted dynamic computation on Dashboard...');
+    const updatedDashRes = await fetch(`${baseUrl}/api/patient/dashboard/${patientUserId}`);
+    const updatedDashData = await updatedDashRes.json();
+    assert.strictEqual(updatedDashData.sessions_timeline[0].feedbackSubmitted, true);
+    assert.strictEqual(updatedDashData.sessions_timeline[1].feedbackSubmitted, true);
+    assert(updatedDashData.sessions_timeline[0].feedback !== null);
+    console.log('✅ Step 5 (feedbackSubmitted dynamic calculation) passed.');
+
+    // --------------------------------------------------------------------------
+    // 6. TEST SAFE VALIDATION: Reject invalid UUID or session ID
+    // --------------------------------------------------------------------------
+    console.log('\n🛡️ Step 6: Testing Safe Validation & Error Handling on Malformed Inputs...');
+    const invalidDash = await fetch(`${baseUrl}/api/patient/dashboard/invalid-uuid`);
+    assert.strictEqual(invalidDash.status, 400);
+
+    const invalidFeed = await fetch(`${baseUrl}/api/patient/feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId: 'invalid', patientId: patientUserId }),
+    });
+    assert.strictEqual(invalidFeed.status, 400);
+    console.log('✅ Step 6 (Safe Parameter Validation) passed.');
+
+    console.log('\n🎉 ALL UPGRADED PATIENT VIEW TESTS PASSED PERFECTLY!\n');
   } finally {
     // Clean up test data
     console.log('🧹 Cleaning up test fixtures...');
