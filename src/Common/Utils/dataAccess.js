@@ -76,4 +76,20 @@ async function getClinicResources(clinicId) {
   };
 }
 
-module.exports = { findUserByRole, findUserById, getClinicResources };
+async function findUserByEmailOrPhone(identifier) {
+  if (!identifier || typeof identifier !== 'string') {
+    return null;
+  }
+  const clean = identifier.trim();
+  const result = await query(
+    `SELECT u.id, u.name, u.email, u.phone, u.password_hash, u.role, u.gender, u.clinic_id, u.is_active, c.practitioner_mode 
+     FROM users u 
+     LEFT JOIN clinics c ON u.clinic_id = c.id 
+     WHERE LOWER(u.email) = LOWER($1) OR u.phone = $1 
+     LIMIT 1`,
+    [clean]
+  );
+  return result.rows[0] || null;
+}
+
+module.exports = { findUserByRole, findUserById, findUserByEmailOrPhone, getClinicResources };

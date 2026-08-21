@@ -38,15 +38,29 @@ function determineConfirmedDosha(scores) {
   return `${label(topDosha)}-dominant`;
 }
 
-async function submitAssessment(patientId, doctorUser, { answers, clinical_observation }) {
-  const optionIds = answers.map((a) => a.option_id);
-  const optionsResult = await query(
-    `SELECT id, dosha_weight FROM prakriti_question_options WHERE id = ANY($1::int[])`,
-    [optionIds]
-  );
+async function submitAssessment(patientId, doctorUser, { answers = [], clinical_observation, confirmed_dosha }) {
+  let scores = { vata: 0, pitta: 0, kapha: 0 };
+  let finalDosha = confirmed_dosha;
 
-  const scores = calculateDoshaScores(optionsResult.rows);
-  const confirmedDosha = determineConfirmedDosha(scores);
+  const validAnswers = Array.isArray(answers) ? answers.filter((a) => a && a.option_id) : [];
+
+  if (validAnswers.length > 0) {
+    const optionIds = validAnswers.map((a) => parseInt(a.option_id, 10)).filter((id) => !isNaN(id));
+    if (optionIds.length > 0) {
+      const optionsResult = await query(
+        `SELECT id, dosha_weight FROM prakriti_question_options WHERE id = ANY($1::int[])`,
+        [optionIds]
+      );
+      scores = calculateDoshaScores(optionsResult.rows);
+      if (!finalDosha) {
+        finalDosha = determineConfirmedDosha(scores);
+      }
+    }
+  }
+
+  if (!finalDosha || finalDosha === 'Undetermined') {
+    finalDosha = 'Vata-Pitta'; // Classical fallback
+  }
 
   const client = await pool.connect();
   try {
@@ -57,15 +71,17 @@ async function submitAssessment(patientId, doctorUser, { answers, clinical_obser
         (patient_id, conducted_by, tentative_vata, tentative_pitta, tentative_kapha, clinical_observation, confirmed_dosha)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING id, tentative_vata, tentative_pitta, tentative_kapha, confirmed_dosha, assessed_at`,
-      [patientId, doctorUser.id, scores.vata, scores.pitta, scores.kapha, clinical_observation || null, confirmedDosha]
+      [patientId, doctorUser.id, scores.vata, scores.pitta, scores.kapha, clinical_observation || null, finalDosha]
     );
     const assessment = assessmentResult.rows[0];
 
-    for (const ans of answers) {
-      await client.query(
-        `INSERT INTO prakriti_assessment_answers (assessment_id, question_id, option_id) VALUES ($1, $2, $3)`,
-        [assessment.id, ans.question_id, ans.option_id]
-      );
+    for (const ans of validAnswers) {
+      if (ans.question_id && ans.option_id) {
+        await client.query(
+          `INSERT INTO prakriti_assessment_answers (assessment_id, question_id, option_id) VALUES ($1, $2, $3)`,
+          [assessment.id, parseInt(ans.question_id, 10), parseInt(ans.option_id, 10)]
+        );
+      }
     }
 
     await client.query('COMMIT');
@@ -79,3 +95,4 @@ async function submitAssessment(patientId, doctorUser, { answers, clinical_obser
 }
 
 module.exports = { getActiveQuestions, submitAssessment };
+

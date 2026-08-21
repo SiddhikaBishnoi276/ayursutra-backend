@@ -12,10 +12,12 @@ const createRoom = async (req, res) => {
   try {
     const { name, room_type, clinic_id, status } = req.body;
 
+    const resolvedClinicId = clinic_id || req.user?.clinic_id || 1;
+
     // — Required field validation —
     const missing = [];
     if (!name?.trim()) missing.push('name');
-    if (!clinic_id)    missing.push('clinic_id');
+    if (!resolvedClinicId) missing.push('clinic_id');
 
     if (missing.length > 0) {
       return res.status(400).json({
@@ -35,7 +37,7 @@ const createRoom = async (req, res) => {
     const newRoom = await roomService.createRoom({
       name: name.trim(),
       room_type,
-      clinic_id: parseInt(clinic_id, 10),
+      clinic_id: parseInt(resolvedClinicId, 10),
       status: status || 'available',
     });
 
@@ -63,9 +65,10 @@ const createRoom = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 const getAllRooms = async (req, res) => {
   try {
-    const { clinic_id } = req.query;
+    const rawClinicId = req.query.clinic_id || req.user?.clinic_id;
+    const clinic_id = rawClinicId ? parseInt(rawClinicId, 10) : undefined;
 
-    const rooms = await roomService.getAllRooms(clinic_id ? parseInt(clinic_id, 10) : undefined);
+    const rooms = await roomService.getAllRooms(clinic_id);
 
     return res.status(200).json({
       success: true,
@@ -85,9 +88,11 @@ const getAllRooms = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 const getRoomOccupancy = async (req, res) => {
   try {
-    const { clinic_id } = req.query;
+    const rawClinicId = req.query.clinic_id || req.user?.clinic_id;
+    const clinic_id = rawClinicId ? parseInt(rawClinicId, 10) : undefined;
 
-    const occupancy = await roomService.getRoomOccupancy(clinic_id ? parseInt(clinic_id, 10) : undefined);
+    const occupancy = await roomService.getRoomOccupancy(clinic_id);
+
 
     // Summary count of room statuses
     const summary = occupancy.reduce(

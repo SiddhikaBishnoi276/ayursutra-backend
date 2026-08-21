@@ -34,12 +34,15 @@ const createStaff = async (req, res) => {
       ? password.trim()
       : DEFAULT_STAFF_PASSWORD;
 
+    const resolvedClinicId = clinic_id || req.user?.clinic_id || 1;
+    const resolvedCreatedBy = created_by || req.user?.id || null;
+
     // — Required field validation —
     const missing = [];
     if (!name?.trim())     missing.push('name');
     if (!phone?.trim())    missing.push('phone');
     if (!role?.trim())     missing.push('role');
-    if (!clinic_id)        missing.push('clinic_id');
+    if (!resolvedClinicId) missing.push('clinic_id');
 
     if (missing.length > 0) {
       return res.status(400).json({
@@ -84,8 +87,8 @@ const createStaff = async (req, res) => {
       password: staffPassword,
       gender: gender || null,
       role,
-      clinic_id,
-      created_by: created_by || null,
+      clinic_id: parseInt(resolvedClinicId, 10),
+      created_by: resolvedCreatedBy,
       qualification: qualification || null,
       registration_number: registration_number || null,
       specializations: specializations || [],
@@ -137,7 +140,9 @@ const createStaff = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 const getAllStaff = async (req, res) => {
   try {
-    const { role, status, clinic_id } = req.query;
+    const { role, status } = req.query;
+    const rawClinicId = req.query.clinic_id || req.user?.clinic_id;
+    const clinic_id = rawClinicId ? parseInt(rawClinicId, 10) : undefined;
 
     // Validate optional role filter
     if (role && !VALID_ROLES.includes(role)) {
@@ -168,6 +173,7 @@ const getAllStaff = async (req, res) => {
     return res.status(500).json({ success: false, message: 'Internal server error.' });
   }
 };
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PATCH /api/staff/:id/status — Update status of a staff member
