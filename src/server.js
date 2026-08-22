@@ -2,6 +2,8 @@ require('dotenv').config();
 const app = require('./app');
 const { pool } = require('./config/db');
 
+const { startNotificationCron } = require('./Scheduling/Jobs/notificationCron');
+
 const PORT = process.env.PORT || 5000;
 
 // Verify Database Connection before listening
@@ -10,6 +12,7 @@ pool.query('SELECT NOW()')
     console.log('Database connected successfully at:', res.rows[0].now);
     app.listen(PORT, () => {
       console.log(`AyurSutra backend running on port ${PORT}`);
+      startNotificationCron();
     });
   })
   .catch((err) => {
