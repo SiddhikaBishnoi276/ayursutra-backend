@@ -197,7 +197,7 @@ const therapistService = {
       await client.query('BEGIN');
 
       const sessionQuery = `
-        SELECT id, plan_stage_id, status 
+        SELECT id, plan_stage_id, status, room_id 
         FROM sessions 
         WHERE id = $1
         FOR UPDATE;
@@ -257,6 +257,15 @@ const therapistService = {
         WHERE id = $1;
       `;
       await client.query(updateStageQuery, [currentSession.plan_stage_id]);
+
+      if (currentSession.room_id) {
+        const updateRoomQuery = `
+          UPDATE rooms 
+          SET status = 'occupied' 
+          WHERE id = $1;
+        `;
+        await client.query(updateRoomQuery, [currentSession.room_id]);
+      }
 
       await client.query('COMMIT');
 
@@ -323,6 +332,7 @@ const therapistService = {
           s.status AS session_status,
           s.plan_stage_id,
           s.therapist_id,
+          s.room_id,
           tps.plan_id,
           tps.sequence_order,
           tp.doctor_id
@@ -434,6 +444,15 @@ const therapistService = {
       `;
       await client.query(updateSessionQuery, [parsedSessionId]);
 
+      if (sessionContext.room_id) {
+        const updateRoomQuery = `
+          UPDATE rooms 
+          SET status = 'available' 
+          WHERE id = $1;
+        `;
+        await client.query(updateRoomQuery, [sessionContext.room_id]);
+      }
+
       // Complete current stage
       const updateCurrentStageQuery = `
         UPDATE therapy_plan_stages 
@@ -441,6 +460,15 @@ const therapistService = {
         WHERE id = $1;
       `;
       await client.query(updateCurrentStageQuery, [sessionContext.plan_stage_id]);
+
+      if (sessionContext.room_id) {
+        const updateRoomQuery = `
+          UPDATE rooms 
+          SET status = 'available' 
+          WHERE id = $1;
+        `;
+        await client.query(updateRoomQuery, [sessionContext.room_id]);
+      }
 
       // Find next sequential stage
       const nextStageQuery = `
@@ -515,6 +543,7 @@ const therapistService = {
           s.status AS session_status,
           s.plan_stage_id,
           s.therapist_id,
+          s.room_id,
           tps.plan_id,
           tp.doctor_id
         FROM sessions s
@@ -569,6 +598,22 @@ const therapistService = {
       ]);
 
       const observationId = obsRes.rows[0].id;
+
+      const updateSessionQuery = `
+        UPDATE sessions 
+        SET status = 'paused', actual_end_time = CURRENT_TIMESTAMP 
+        WHERE id = $1;
+      `;
+      await client.query(updateSessionQuery, [parsedSessionId]);
+
+      if (sessionContext.room_id) {
+        const updateRoomQuery = `
+          UPDATE rooms 
+          SET status = 'available' 
+          WHERE id = $1;
+        `;
+        await client.query(updateRoomQuery, [sessionContext.room_id]);
+      }
 
       // Create doctor alert
       const alertQuery = `

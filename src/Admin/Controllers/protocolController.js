@@ -54,7 +54,7 @@ const createProtocol = async (req, res) => {
       });
     }
 
-    const resolvedClinicId = clinic_id || req.user?.clinic_id || 1;
+    const resolvedClinicId = req.user?.clinic_id || clinic_id || 1;
     const resolvedTherapyType = protocolService.sanitizeTherapyType(therapy_type || targetDosha);
 
     // Validate nested stages if provided

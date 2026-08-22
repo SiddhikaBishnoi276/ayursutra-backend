@@ -197,7 +197,11 @@ const patientService = {
         FROM prakriti_assessments 
         ORDER BY patient_id, assessed_at DESC
       ) pa ON p.user_id = pa.patient_id
-      LEFT JOIN therapy_plans tp ON p.user_id = tp.patient_id AND tp.status = 'active'
+      LEFT JOIN (
+        SELECT DISTINCT ON (patient_id) * 
+        FROM therapy_plans 
+        ORDER BY patient_id, created_at DESC
+      ) tp ON p.user_id = tp.patient_id
       LEFT JOIN therapy_packages tp_pkg ON tp.package_id = tp_pkg.id
       LEFT JOIN users doc_user ON tp.doctor_id = doc_user.id
       WHERE p.user_id = $1;

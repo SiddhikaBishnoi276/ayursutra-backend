@@ -131,17 +131,52 @@ async function generateTherapyPlan(doctorUser, patientId, packageId, options = {
   if (stages.length === 0) throw new Error('This package has no stages defined');
 
 
-  // Filter 1: Specialization match (continuity - same primary therapist for the plan)
-  const specMatch = await query(
-    `SELECT u.id, u.name FROM users u
-     JOIN therapist_specializations ts ON ts.therapist_id = u.id
-     WHERE u.clinic_id = $1 AND u.role = 'therapist' AND u.is_active = true AND ts.therapy_type = $2
-     LIMIT 1`,
-    [doctorUser.clinic_id, pkg.therapy_type]
-  );
-  let primaryTherapist = specMatch.rows[0];
+  // Fetch patient gender for strict AYUSH same-gender continuity matching
+  const patientUserRes = await query('SELECT gender FROM users WHERE id = $1', [patientId]);
+  const patientGender = patientUserRes.rows[0]?.gender || null;
 
-  // Fallback: any active therapist in the clinic
+  // Filter 0: Explicit therapist assignment if provided by doctor
+  let primaryTherapist = null;
+  if (options.therapistId && options.therapistId !== 'DOCTOR-SELF') {
+    const explicitTherapistRes = await query(
+      `SELECT id, name FROM users WHERE id = $1 AND clinic_id = $2 AND role = 'therapist' AND is_active = true LIMIT 1`,
+      [options.therapistId, doctorUser.clinic_id]
+    );
+    primaryTherapist = explicitTherapistRes.rows[0] || null;
+  }
+
+  // Filter 1: Specialization match with same-gender preference (continuity)
+  if (!primaryTherapist && patientGender) {
+    const specMatchGender = await query(
+      `SELECT u.id, u.name FROM users u
+       JOIN therapist_specializations ts ON ts.therapist_id = u.id
+       WHERE u.clinic_id = $1 AND u.role = 'therapist' AND u.is_active = true AND ts.therapy_type = $2 AND LOWER(u.gender) = LOWER($3)
+       LIMIT 1`,
+      [doctorUser.clinic_id, pkg.therapy_type, patientGender]
+    );
+    primaryTherapist = specMatchGender.rows[0];
+  }
+
+  if (!primaryTherapist) {
+    const specMatch = await query(
+      `SELECT u.id, u.name FROM users u
+       JOIN therapist_specializations ts ON ts.therapist_id = u.id
+       WHERE u.clinic_id = $1 AND u.role = 'therapist' AND u.is_active = true AND ts.therapy_type = $2
+       LIMIT 1`,
+      [doctorUser.clinic_id, pkg.therapy_type]
+    );
+    primaryTherapist = specMatch.rows[0];
+  }
+
+  // Fallback: any active same-gender therapist in the clinic
+  if (!primaryTherapist && patientGender) {
+    const fallbackGender = await query(
+      `SELECT id, name FROM users WHERE clinic_id = $1 AND role = 'therapist' AND is_active = true AND LOWER(gender) = LOWER($2) LIMIT 1`,
+      [doctorUser.clinic_id, patientGender]
+    );
+    primaryTherapist = fallbackGender.rows[0];
+  }
+
   if (!primaryTherapist) {
     const fallback = await query(
       `SELECT id, name FROM users WHERE clinic_id = $1 AND role = 'therapist' AND is_active = true LIMIT 1`,
@@ -151,10 +186,10 @@ async function generateTherapyPlan(doctorUser, patientId, packageId, options = {
   }
   if (!primaryTherapist) throw new Error('No active therapist available in this clinic');
 
-  // Fetch all active clinic therapists for fallback
+  // Fetch all active clinic therapists for fallback, prioritizing the primary/assigned therapist first
   const allTherapistsRes = await query(
-    `SELECT id, name FROM users WHERE clinic_id = $1 AND role = 'therapist' AND is_active = true ORDER BY (id = $2) DESC`,
-    [doctorUser.clinic_id, primaryTherapist.id]
+    `SELECT id, name FROM users WHERE clinic_id = $1 AND role = 'therapist' AND is_active = true ORDER BY (id = $2) DESC, (LOWER(gender) = LOWER($3)) DESC`,
+    [doctorUser.clinic_id, primaryTherapist.id, patientGender || '']
   );
   const clinicTherapists = allTherapistsRes.rows;
 

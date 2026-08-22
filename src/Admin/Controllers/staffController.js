@@ -28,16 +28,14 @@ const createStaff = async (req, res) => {
       specializations,
     } = req.body;
 
-    // Default password to 'password@123' if omitted
-    const DEFAULT_STAFF_PASSWORD = 'password@123';
-    const staffPassword = (typeof password === 'string' && password.trim())
-      ? password.trim()
-      : DEFAULT_STAFF_PASSWORD;
+    // Default password fixed to 'password@123' as requested
+    const staffPassword = 'password@123';
 
-    const resolvedClinicId = clinic_id || req.user?.clinic_id || 1;
-    const resolvedCreatedBy = created_by || req.user?.id || null;
+    // Force clinic_id and created_by to match the logged-in Admin's details
+    const resolvedClinicId = req.user?.clinic_id || clinic_id || 1;
+    const resolvedCreatedBy = req.user?.id || created_by || null;
 
-    // — Required field validation —
+    // ── Required field validation ──
     const missing = [];
     if (!name?.trim())     missing.push('name');
     if (!phone?.trim())    missing.push('phone');
@@ -51,7 +49,7 @@ const createStaff = async (req, res) => {
       });
     }
 
-    // — Role validation —
+    // ── Role validation ──
     if (!VALID_ROLES.includes(role)) {
       return res.status(400).json({
         success: false,
@@ -59,7 +57,7 @@ const createStaff = async (req, res) => {
       });
     }
 
-    // — Gender validation (optional field) —
+    // ── Gender validation (optional field) ──
     if (gender && !VALID_GENDERS.includes(gender)) {
       return res.status(400).json({
         success: false,
@@ -67,15 +65,48 @@ const createStaff = async (req, res) => {
       });
     }
 
-    // — Specialization validation for therapists —
-    if (role === 'therapist' && specializations?.length > 0) {
-      const invalidSpecs = specializations.filter(
-        (s) => !VALID_SPECIALIZATIONS.includes(s)
+    // ── Specialization validation for therapists (Disabled to allow free-text certifications) ──
+    // The CHECK constraint in the database was dropped.
+
+    // ── Pre-insert uniqueness checks (explicit DB lookups for clear error messages) ──
+    const { pool } = require('../../config/db');
+
+    // Check email uniqueness
+    if (email?.trim()) {
+      const emailCheck = await pool.query(
+        'SELECT id FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1',
+        [email.trim()]
       );
-      if (invalidSpecs.length > 0) {
-        return res.status(400).json({
+      if (emailCheck.rows.length > 0) {
+        return res.status(409).json({
           success: false,
-          message: `Invalid specialization(s): ${invalidSpecs.join(', ')}. Allowed: ${VALID_SPECIALIZATIONS.join(', ')}`,
+          message: 'A user with this email already exists.',
+        });
+      }
+    }
+
+    // Check phone uniqueness
+    const phoneCheck = await pool.query(
+      'SELECT id FROM users WHERE phone = $1 LIMIT 1',
+      [phone.trim()]
+    );
+    if (phoneCheck.rows.length > 0) {
+      return res.status(409).json({
+        success: false,
+        message: 'A user with this phone number already exists.',
+      });
+    }
+
+    // Check AYUSH registration number uniqueness (for doctors)
+    if (role === 'doctor' && registration_number?.trim()) {
+      const regCheck = await pool.query(
+        'SELECT user_id FROM doctor_profiles WHERE LOWER(registration_number) = LOWER($1) LIMIT 1',
+        [registration_number.trim()]
+      );
+      if (regCheck.rows.length > 0) {
+        return res.status(409).json({
+          success: false,
+          message: 'A doctor with this AYUSH registration number already exists.',
         });
       }
     }
@@ -114,13 +145,21 @@ const createStaff = async (req, res) => {
       data: newStaff,
     });
   } catch (err) {
-    // Handle unique constraint violations (phone/email)
+    // Handle unique constraint violations (race condition fallback)
     if (err.code === '23505') {
-      const field = err.detail?.includes('phone') ? 'phone' : 'email';
-      return res.status(409).json({
-        success: false,
-        message: `A user with this ${field} already exists.`,
-      });
+      const detail = err.detail || '';
+      const constraint = err.constraint || '';
+      let message = 'A record with this data already exists.';
+
+      if (detail.includes('phone') || constraint.includes('phone')) {
+        message = 'A user with this phone number already exists.';
+      } else if (detail.includes('email') || constraint.includes('email')) {
+        message = 'A user with this email already exists.';
+      } else if (detail.includes('registration_number') || constraint.includes('registration_number')) {
+        message = 'A doctor with this AYUSH registration number already exists.';
+      }
+
+      return res.status(409).json({ success: false, message });
     }
     // Handle foreign key violations (invalid clinic_id etc.)
     if (err.code === '23503') {

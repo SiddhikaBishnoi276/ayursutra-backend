@@ -12,7 +12,7 @@ const createRoom = async (req, res) => {
   try {
     const { name, room_type, clinic_id, status } = req.body;
 
-    const resolvedClinicId = clinic_id || req.user?.clinic_id || 1;
+    const resolvedClinicId = req.user?.clinic_id || clinic_id || 1;
 
     // — Required field validation —
     const missing = [];

@@ -27,8 +27,8 @@ const createStaff = async (data) => {
   try {
     await client.query('BEGIN');
 
-    // 1. Hash password
-    const password_hash = await bcrypt.hash(password, 10);
+    // 1. Bypass hash for now as requested (save plain text password@123)
+    const password_hash = password;
 
     // 2. Insert into users
     const userResult = await client.query(

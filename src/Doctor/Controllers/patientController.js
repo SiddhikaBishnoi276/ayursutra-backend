@@ -2,17 +2,38 @@ const { addPatient, listPatients } = require('../Services/patientService');
 
 async function addPatientHandler(req, res) {
   try {
-    const { name, age, gender, contact_number, contact, email, chief_complaint, chiefComplaint, diagnosis } = req.body;
+    const { pool } = require('../../config/db');
+    const { name, email, contact, contact_number, diagnosis, chiefComplaint, chief_complaint, age, gender } = req.body;
     const phone = contact_number || contact;
-    if (!name || !phone || !email) {
-      return res.status(400).json({ error: 'Patient name, email, and contact number are required.' });
+
+    // Check email uniqueness
+    if (email?.trim()) {
+      const emailCheck = await pool.query(
+        'SELECT id FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1',
+        [email.trim()]
+      );
+      if (emailCheck.rows.length > 0) {
+        return res.status(409).json({ error: 'A patient with this email already exists.' });
+      }
     }
+
+    // Check phone uniqueness
+    if (phone?.trim()) {
+      const phoneCheck = await pool.query(
+        'SELECT id FROM users WHERE phone = $1 LIMIT 1',
+        [phone.trim()]
+      );
+      if (phoneCheck.rows.length > 0) {
+        return res.status(409).json({ error: 'A patient with this phone number already exists.' });
+      }
+    }
+
     const result = await addPatient(req.user, {
       name,
-      age: age ? parseInt(age, 10) : 35,
-      gender: gender || 'Female',
-      contact_number: phone,
-      email: email.trim().toLowerCase(),
+      age,
+      gender,
+      contact: phone,
+      email: email?.trim().toLowerCase() || null,
       chief_complaint: chief_complaint || chiefComplaint || 'Clinical evaluation',
       diagnosis,
     });
@@ -20,7 +41,13 @@ async function addPatientHandler(req, res) {
     res.status(201).json(result);
   } catch (err) {
     console.error('Error in addPatientHandler:', err);
-    res.status(err.message.includes('already registered') ? 409 : 500).json({ error: err.message });
+    // Fallback for any unhandled database constraint violations
+    if (err.code === '23505') {
+      let field = 'email';
+      if (err.detail?.includes('phone')) field = 'phone number';
+      return res.status(409).json({ error: `A user with this ${field} already exists.` });
+    }
+    res.status(500).json({ error: err.message });
   }
 }
 

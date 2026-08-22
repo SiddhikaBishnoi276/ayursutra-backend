@@ -154,7 +154,7 @@ async function createPackage(doctorUser, packageData) {
 
     const name = packageData.name ? packageData.name.trim() : 'Custom Therapy Protocol';
     const therapyType = sanitizeTherapyType(packageData.therapy_type || packageData.targetDosha);
-    const clinicId = parseInt(packageData.clinic_id || doctorUser?.clinic_id || 1, 10);
+    const clinicId = parseInt(doctorUser?.clinic_id || packageData.clinic_id || 1, 10);
     const description = packageData.description?.trim() || `Classical clinical protocol for ${name}.`;
     const basePrice = packageData.base_price !== undefined ? parseFloat(packageData.base_price) : 0;
     const createdBy = doctorUser?.id || packageData.created_by || null;
