@@ -69,7 +69,37 @@ const retryNotification = async (rawId) => {
   };
 };
 
+const registerDeviceToken = async (userId, token) => {
+  const query = `
+    INSERT INTO user_device_tokens (user_id, token, created_at, updated_at)
+    VALUES ($1, $2, NOW(), NOW())
+    ON CONFLICT (token) DO UPDATE 
+    SET user_id = EXCLUDED.user_id, updated_at = NOW()
+  `;
+  await pool.query(query, [userId, token]);
+};
+
+const getMyNotifications = async (userId) => {
+  const result = await pool.query(
+    `SELECT 
+      id, 
+      channel, 
+      content AS message, 
+      delivery_status AS status,
+      COALESCE(sent_at, scheduled_at, NOW()) AS time,
+      false AS is_read
+     FROM notifications
+     WHERE recipient_id = $1
+     ORDER BY id DESC
+     LIMIT 50`,
+    [userId]
+  );
+  return result.rows;
+};
+
 module.exports = {
   getNotificationLogs,
-  retryNotification
+  retryNotification,
+  registerDeviceToken,
+  getMyNotifications
 };

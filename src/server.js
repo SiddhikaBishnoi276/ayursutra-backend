@@ -1,6 +1,9 @@
 require('dotenv').config();
 const app = require('./app');
 const { pool } = require('./config/db');
+const { initFirebase } = require('./config/firebase');
+
+initFirebase();
 
 const PORT = process.env.PORT || 5000;
 

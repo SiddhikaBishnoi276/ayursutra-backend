@@ -111,3 +111,5 @@ app.use('/api/notifications', notificationRoutes);
 app.use(errorHandler);
 
 module.exports = app;
+
+// trigger nodemon
