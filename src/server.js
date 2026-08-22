@@ -1,6 +1,15 @@
 require('dotenv').config();
 const app = require('./app');
 const { pool } = require('./config/db');
+const { initFirebase } = require('./config/firebase');
+const { registerListeners } = require('./Notifications/notificationListeners');
+const { startScheduler } = require('./Notifications/scheduler');
+
+initFirebase();
+
+// Initialize Notification Engine
+registerListeners();
+startScheduler();
 
 const PORT = process.env.PORT || 5000;
 
