@@ -1,10 +1,8 @@
 const { pool } = require('./src/config/db');
 async function test() {
   try {
-    const userRes = await pool.query("SELECT id, name, email FROM users LIMIT 10");
-    console.log('Users:', userRes.rows);
-    const tokenRes = await pool.query('SELECT * FROM user_device_tokens');
-    console.log('Tokens:', tokenRes.rows);
+    const res = await pool.query("SELECT table_name FROM information_schema.tables WHERE table_schema='public'");
+    console.log('Tables:', res.rows.map(r => r.table_name));
   } catch (e) {
     console.error('Error:', e.message);
   } finally {
