@@ -106,6 +106,7 @@ app.use('/api/patient', patientRoutes);
 
 // Notification Routes
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/v1/notifications', notificationRoutes);
 
 // ── Centralized Error Handling Middleware ─────────────────────────────────────
 app.use(errorHandler);

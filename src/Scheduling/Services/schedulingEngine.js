@@ -389,6 +389,29 @@ async function generateTherapyPlan(doctorUser, patientId, packageId, options = {
 
     await client.query('COMMIT');
 
+    // Dispatch "New Session Assigned" to therapists
+    const { createAndSendNotification } = require('../../Notifications/Services/notificationService');
+    const patientRes = await pool.query('SELECT name FROM users WHERE id = $1', [patientId]);
+    const patientName = patientRes.rows[0]?.name || 'Patient';
+
+    for (const stage of scheduleOutput) {
+      for (const sess of stage.sessions) {
+        // We need therapist ID to notify, we only have therapist name in scheduleOutput,
+        // let's lookup therapist ID by matching clinicTherapists
+        const tMatch = clinicTherapists.find(t => t.name === sess.therapist);
+        if (tMatch) {
+          createAndSendNotification({
+            userId: tMatch.id,
+            type: 'reminder',
+            title: 'New Session Assigned 📅',
+            body: `Naya session assign hua hai: ${patientName} (${stage.stage_type}) on ${sess.date} at ${sess.start_time}.`,
+            data: { type: 'reminder', sessionId: sess.session_id, route: '/therapist/queue' },
+            relatedSessionId: sess.session_id,
+          }).catch(err => console.error('Notification dispatch error (assignment):', err));
+        }
+      }
+    }
+
     return {
       plan_id: planId,
       package_id: pkg.id,

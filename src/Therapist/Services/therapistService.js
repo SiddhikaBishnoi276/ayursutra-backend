@@ -1,4 +1,5 @@
 const { pool } = require('../../config/db');
+const { createAndSendNotification } = require('../../Notifications/Services/notificationService');
 
 /**
  * Standard Classical Ayurvedic Prep Materials by Stage Type
@@ -323,12 +324,18 @@ const therapistService = {
           s.status AS session_status,
           s.plan_stage_id,
           s.therapist_id,
+          s.patient_id,
           tps.plan_id,
           tps.sequence_order,
-          tp.doctor_id
+          tps.stage_type,
+          tp.doctor_id,
+          p.name AS patient_name,
+          th.name AS therapist_name
         FROM sessions s
         JOIN therapy_plan_stages tps ON s.plan_stage_id = tps.id
         JOIN therapy_plans tp ON tps.plan_id = tp.id
+        JOIN users p ON s.patient_id = p.id
+        JOIN users th ON s.therapist_id = th.id
         WHERE s.id = $1
         FOR UPDATE;
       `;
@@ -408,6 +415,16 @@ const therapistService = {
 
         await client.query('COMMIT');
 
+        // Dispatch unified notification asynchronously (does not block session completion)
+        createAndSendNotification({
+          userId: sessionContext.doctor_id,
+          type: 'complication_alert',
+          title: '🚨 URGENT: Clinical Complication Alert',
+          body: `Patient ${sessionContext.patient_name} reported abnormal response during ${sessionContext.stage_type}. Notes: ${complicationNotes}. Review immediately.`,
+          data: { type: "complication_alert", sessionId: parsedSessionId, alertId, route: "/doctor/alerts" },
+          relatedSessionId: parsedSessionId,
+        }).catch(err => console.error('Notification dispatch error (complication):', err));
+
         return {
           statusCode: 200,
           data: {
@@ -469,6 +486,29 @@ const therapistService = {
 
       await client.query('COMMIT');
 
+      // Dispatch Notifications
+      // 1. Patient Post-Instructions
+      createAndSendNotification({
+        userId: sessionContext.patient_id,
+        type: 'post_instruction',
+        title: 'Therapy Completed Successfully ✨',
+        body: sessionContext.post_instructions || '30 minute warm room me rest karein, direct AC/fan se bachein.',
+        data: { type: "post_instruction", sessionId: parsedSessionId, route: "/patient/dashboard" },
+        relatedSessionId: parsedSessionId,
+      }).catch(err => console.error('Notification dispatch error (post_instruction):', err));
+
+      // 2. Doctor Stage Unlocked (if applicable)
+      if (nextStageUnlocked) {
+        createAndSendNotification({
+          userId: sessionContext.doctor_id,
+          type: 'reminder',
+          title: 'Stage Completed ✅',
+          body: `Patient ${sessionContext.patient_name} ka ${sessionContext.stage_type} complete ho gaya hai. Next stage auto-unlocked.`,
+          data: { type: "reminder", patientId: sessionContext.patient_id, route: "/doctor/patients" },
+          relatedSessionId: parsedSessionId,
+        }).catch(err => console.error('Notification dispatch error (stage_unlocked):', err));
+      }
+
       return {
         statusCode: 200,
         data: {
@@ -515,11 +555,17 @@ const therapistService = {
           s.status AS session_status,
           s.plan_stage_id,
           s.therapist_id,
+          s.patient_id,
           tps.plan_id,
-          tp.doctor_id
+          tps.stage_type,
+          tp.doctor_id,
+          p.name AS patient_name,
+          ps.post_instructions
         FROM sessions s
         JOIN therapy_plan_stages tps ON s.plan_stage_id = tps.id
         JOIN therapy_plans tp ON tps.plan_id = tp.id
+        JOIN users p ON s.patient_id = p.id
+        LEFT JOIN therapy_package_stages ps ON tps.package_stage_id = ps.id
         WHERE s.id = $1
         FOR UPDATE;
       `;
@@ -587,6 +633,16 @@ const therapistService = {
       const alertId = alertRes.rows[0].id;
 
       await client.query('COMMIT');
+
+      // Dispatch unified notification asynchronously
+      createAndSendNotification({
+        userId: sessionContext.doctor_id,
+        type: 'session_pause',
+        title: '⚠️ Emergency Session Pause',
+        body: `Therapist ${sessionContext.therapist_name} ne session #${parsedSessionId} (${sessionContext.patient_name}) ko pause kiya hai: ${reason}.`,
+        data: { type: "complication_alert", sessionId: parsedSessionId, route: "/doctor/alerts" },
+        relatedSessionId: parsedSessionId,
+      }).catch(err => console.error('Notification dispatch error (pause):', err));
 
       return {
         statusCode: 200,
@@ -697,6 +753,31 @@ const therapistService = {
         therapistName: targetTherapist.name,
         therapist_name: targetTherapist.name,
       }));
+
+      // Fetch names for notification
+      if (reassignedSessions.length > 0) {
+        const sessionIdsToFetch = reassignedSessions.map(s => s.id);
+        const nameQuery = `
+          SELECT s.id, p.name AS patient_name, t.name AS source_therapist_name
+          FROM sessions s
+          JOIN users p ON s.patient_id = p.id
+          LEFT JOIN users t ON t.id = $1
+          WHERE s.id = ANY($2)
+        `;
+        const nameRes = await client.query(nameQuery, [sourceTherapistId || null, sessionIdsToFetch]);
+        
+        for (const row of nameRes.rows) {
+          const srcName = row.source_therapist_name || 'Admin/Doctor';
+          createAndSendNotification({
+            userId: targetTherapistId,
+            type: 'reminder',
+            title: 'Session Handed Over to You 🔄',
+            body: `${srcName} ne session #${row.id} (${row.patient_name}) aapko handover kiya hai.`,
+            data: { type: 'reminder', sessionId: row.id, route: '/therapist/queue' },
+            relatedSessionId: row.id,
+          }).catch(err => console.error('Notification dispatch error (handover):', err));
+        }
+      }
 
       return {
         statusCode: 200,
@@ -1062,6 +1143,47 @@ const therapistService = {
       },
     };
   },
+
+  /**
+   * 12. Mark session as no-show
+   */
+  markSessionNoShow: async (parsedSessionId) => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const sessionQuery = `
+        SELECT s.id, s.patient_id, s.scheduled_time, TO_CHAR(s.scheduled_date, 'YYYY-MM-DD') AS scheduled_date, tp.doctor_id, p.name AS patient_name
+        FROM sessions s
+        JOIN therapy_plan_stages tps ON s.plan_stage_id = tps.id
+        JOIN therapy_plans tp ON tps.plan_id = tp.id
+        JOIN users p ON s.patient_id = p.id
+        WHERE s.id = $1 FOR UPDATE;
+      `;
+      const res = await client.query(sessionQuery, [parsedSessionId]);
+      if (res.rows.length === 0) throw new Error('Session not found');
+      
+      const session = res.rows[0];
+      await client.query(`UPDATE sessions SET status = 'no_show' WHERE id = $1`, [parsedSessionId]);
+      await client.query('COMMIT');
+      
+      // Dispatch notification to doctor
+      createAndSendNotification({
+        userId: session.doctor_id,
+        type: 'no_show',
+        title: 'Patient Missed Slot ⚠️',
+        body: `Patient ${session.patient_name} ${session.scheduled_time || session.scheduled_date} baje ke slot par nahi pahuche. Session marked as No-Show.`,
+        data: { type: 'no_show', sessionId: parsedSessionId, route: '/doctor/schedule' },
+        relatedSessionId: parsedSessionId,
+      }).catch(err => console.error('Notification dispatch error (no_show):', err));
+      
+      return { success: true, sessionId: parsedSessionId, status: 'no_show' };
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
 };
 
 module.exports = therapistService;
